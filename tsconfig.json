@@ -1,0 +1,70 @@
+{
+  "compilerOptions": {
+    // Language and Module Settings
+    "target": "ES2022",                    // Modern JavaScript features
+    "module": "ESNext",                    // ES Modules
+    "lib": ["ES2022"],                     // Available JavaScript APIs
+    "moduleResolution": "bundler",         // Modern module resolution
+
+    // Strict Type Checking
+    "strict": true,                        // Enable all strict options
+    "noImplicitAny": true,                // Error on 'any' type inference
+    "strictNullChecks": true,             // null/undefined must be handled explicitly
+    "strictFunctionTypes": true,          // Strict function type checking
+    "noImplicitReturns": true,            // Functions must return on all code paths
+    "noImplicitOverride": true,           // Require 'override' keyword
+
+    // Additional Checks
+    "noUnusedLocals": true,               // Error on unused local variables
+    "noUnusedParameters": true,           // Error on unused function parameters
+    "exactOptionalPropertyTypes": true,   // Distinguish undefined vs missing properties
+    "noUncheckedIndexedAccess": true,     // Add undefined to array/object access
+
+    // Output Settings
+    "outDir": "./dist",                   // Compiled JavaScript output directory
+    "rootDir": "./src",                   // Source code root directory
+    "removeComments": true,               // Remove comments from output
+    "declaration": true,                  // Generate .d.ts files
+    "declarationMap": true,               // Generate source maps for declarations
+    "sourceMap": true,                    // Generate source maps for debugging
+
+    // Module Resolution
+    "esModuleInterop": true,              // Better CommonJS/ES module interop
+    "allowSyntheticDefaultImports": true, // Allow default imports from modules
+    "forceConsistentCasingInFileNames": true, // Consistent file naming
+    "resolveJsonModule": true,            // Allow importing JSON files
+
+    // Path Mapping (for clean imports)
+    "baseUrl": "./src",
+    "paths": {
+      "@domains/*": ["domains/*"],
+      "@features/*": ["features/*"],
+      "@shared/*": ["shared/*"],
+      "@infrastructure/*": ["infrastructure/*"]
+    },
+
+    // Performance
+    "skipLibCheck": true,                 // Skip type checking of declaration files
+    "incremental": true,                  // Enable incremental compilation
+    "tsBuildInfoFile": "./dist/.tsbuildinfo" // Cache compilation info
+  },
+
+  // Files to include
+  "include": [
+    "src/**/*"
+  ],
+
+  // Files to exclude
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ],
+
+  // TypeScript 5.0+ settings
+  "ts-node": {
+    "esm": false,
+    "experimentalSpecifierResolution": "node"
+  }
+}
