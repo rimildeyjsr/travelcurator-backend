@@ -13,8 +13,8 @@ interface Config {
     jwtSecret: string;
   };
   apis: {
-    openai?: string;
-    mapbox?: string;
+    openai: string | undefined;
+    mapbox: string | undefined;
   };
 }
 

@@ -1,5 +1,6 @@
-import { FastifyInstance, FastifyPluginOptions } from 'fastify';
+import { FastifyInstance } from 'fastify';
 import { config } from '@shared/config';
+import { NotFoundError, AppError } from '@shared/errors';
 
 export interface HealthResponse {
   status: string;
@@ -22,11 +23,11 @@ export interface ApiInfoResponse {
 
 async function healthRoutes(
   fastify: FastifyInstance,
-  options: FastifyPluginOptions
+  // options: FastifyPluginOptions
 ): Promise<void> {
 
   // Health check endpoint
-  fastify.get<{ Reply: HealthResponse }>('/health', async (request, reply) => {
+  fastify.get<{ Reply: HealthResponse }>('/health', async () => {
     const memUsage = process.memoryUsage();
 
     return {
@@ -43,14 +44,29 @@ async function healthRoutes(
   });
 
   // API information endpoint
-  fastify.get<{ Reply: ApiInfoResponse }>('/api/info', async (request, reply) => {
+  fastify.get<{ Reply: ApiInfoResponse }>('/api/info', async () => {
     return {
       message: 'TravelCurator API - Your AI travel companion',
       version: '1.0.0',
       environment: config.server.nodeEnv,
-      docs: '/api/docs', // We'll add API docs later
+      docs: '/api/docs',
     };
   });
+
+  // Error testing endpoints (development only)
+  if (config.server.nodeEnv === 'development') {
+    fastify.get('/api/test/404', async () => {
+      throw new NotFoundError('Test resource');
+    });
+
+    fastify.get('/api/test/500', async () => {
+      throw new AppError('Test internal server error', 500);
+    });
+
+    fastify.get('/api/test/unhandled', async () => {
+      throw new Error('Unhandled error with sensitive info: password123');
+    });
+  }
 }
 
 export default healthRoutes;
