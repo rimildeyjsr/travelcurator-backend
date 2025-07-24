@@ -1,6 +1,8 @@
 import { FastifyInstance } from 'fastify';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from '@shared/config';
 import { NotFoundError, AppError } from '@shared/errors';
+import { HelloRequestSchema, HelloResponseSchema } from '@shared/schemas/hello.schema';
 
 export interface HealthResponse {
   status: string;
@@ -23,10 +25,11 @@ export interface ApiInfoResponse {
 
 async function healthRoutes(
   fastify: FastifyInstance,
-  // options: FastifyPluginOptions
 ): Promise<void> {
+  // Add TypeBox support to this route plugin
+  const server = fastify.withTypeProvider<TypeBoxTypeProvider>();
 
-  // Health check endpoint
+  // Your existing health check endpoint
   fastify.get<{ Reply: HealthResponse }>('/health', async () => {
     const memUsage = process.memoryUsage();
 
@@ -43,7 +46,7 @@ async function healthRoutes(
     };
   });
 
-  // API information endpoint
+  // Your existing API info endpoint
   fastify.get<{ Reply: ApiInfoResponse }>('/api/info', async () => {
     return {
       message: 'TravelCurator API - Your AI travel companion',
@@ -53,7 +56,25 @@ async function healthRoutes(
     };
   });
 
-  // Error testing endpoints (development only)
+  // NEW: Add a validated hello endpoint
+  server.post('/api/hello', {
+    schema: {
+      body: HelloRequestSchema,
+      response: {
+        200: HelloResponseSchema
+      }
+    }
+  }, async (request) => {
+    // TypeScript now KNOWS request.body has a 'name' property that's a string!
+    const { name } = request.body;
+
+    return {
+      message: `Hello, ${name}! Welcome to TravelCurator API.`,
+      timestamp: new Date().toISOString()
+    };
+  });
+
+  // Your existing error testing endpoints
   if (config.server.nodeEnv === 'development') {
     fastify.get('/api/test/404', async () => {
       throw new NotFoundError('Test resource');

@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from './shared/config.js';
 import { registerErrorHandler } from './shared/errors/index.js';
 import healthRoutes from './features/health/health.routes.js';
@@ -10,14 +11,14 @@ const fastify = Fastify({
   disableRequestLogging: false,
   requestIdHeader: false,
   genReqId: () => Math.random().toString(36).substring(2, 15),
-});
+}).withTypeProvider<TypeBoxTypeProvider>(); // Add this line for TypeBox support
 
 // Register error handling first
 registerErrorHandler(fastify);
 
-// Register middleware and routes
+// Rest of your existing code stays the same...
 const setupServer = async () => {
-  // Security & CORS middleware
+  // Your existing middleware setup
   await fastify.register(import('@fastify/helmet'), {
     contentSecurityPolicy: {
       directives: {
@@ -52,7 +53,7 @@ const setupServer = async () => {
   await fastify.register(healthRoutes);
 };
 
-// Start the server
+// Your existing start function stays the same
 const start = async (): Promise<void> => {
   try {
     await setupServer();
