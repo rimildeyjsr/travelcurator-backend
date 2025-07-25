@@ -3,18 +3,7 @@ import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from '@shared/config';
 import { NotFoundError, AppError } from '@shared/errors';
 import { HelloRequestSchema, HelloResponseSchema } from '@shared/schemas/hello.schema';
-
-export interface HealthResponse {
-  status: string;
-  timestamp: string;
-  service: string;
-  environment: string;
-  uptime: number;
-  memory: {
-    used: string;
-    total: string;
-  };
-}
+import { db } from '@shared/database';
 
 export interface ApiInfoResponse {
   message: string;
@@ -30,8 +19,17 @@ async function healthRoutes(
   const server = fastify.withTypeProvider<TypeBoxTypeProvider>();
 
   // Your existing health check endpoint
-  fastify.get<{ Reply: HealthResponse }>('/health', async () => {
+  fastify.get('/health', async () => {
     const memUsage = process.memoryUsage();
+
+    const dbHealthy = await db.healthCheck();
+
+    if (!dbHealthy) {
+      return {
+        status: 'error',
+        message: 'Database connection failed'
+      }
+    }
 
     return {
       status: 'ok',
