@@ -1,8 +1,9 @@
 import Fastify from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
-import { config } from './shared/config.js';
-import { registerErrorHandler } from './shared/errors/index.js';
+import { config } from '@shared/config';
+import { registerErrorHandler } from '@shared/errors';
 import healthRoutes from './features/health/health.routes.js';
+import authRoutes from './features/auth/auth.routes.js';  // ← Add this
 
 const fastify = Fastify({
   logger: {
@@ -11,12 +12,11 @@ const fastify = Fastify({
   disableRequestLogging: false,
   requestIdHeader: false,
   genReqId: () => Math.random().toString(36).substring(2, 15),
-}).withTypeProvider<TypeBoxTypeProvider>(); // Add this line for TypeBox support
+}).withTypeProvider<TypeBoxTypeProvider>();
 
 // Register error handling first
 registerErrorHandler(fastify);
 
-// Rest of your existing code stays the same...
 const setupServer = async () => {
   // Your existing middleware setup
   await fastify.register(import('@fastify/helmet'), {
@@ -51,9 +51,10 @@ const setupServer = async () => {
 
   // Register route modules
   await fastify.register(healthRoutes);
+  await fastify.register(authRoutes);  // ← Add this
 };
 
-// Your existing start function stays the same
+// Your existing start function
 const start = async (): Promise<void> => {
   try {
     await setupServer();

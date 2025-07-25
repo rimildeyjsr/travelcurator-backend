@@ -11,6 +11,9 @@ interface Config {
   };
   auth: {
     jwtSecret: string;
+    accessTokenExpiry: string;
+    refreshTokenExpiry: string;
+    saltRounds: number;
   };
   apis: {
     openai: string | undefined;
@@ -41,6 +44,9 @@ export const config: Config = {
   },
   auth: {
     jwtSecret: getEnvVar('JWT_SECRET'),
+    accessTokenExpiry: '15m',        // Short-lived for security
+    refreshTokenExpiry: '7d',        // Long-lived for UX
+    saltRounds: 10                   // bcrypt salt rounds
   },
   apis: {
     openai: getOptionalEnvVar('OPENAI_API_KEY'),

@@ -1,11 +1,14 @@
 import { PrismaClient } from '@prisma/client'
-import { UserRepository } from './user.repository'
+import { UserRepository } from '@shared/database'
+import { UserSessionRepository } from '@shared/database'
 
 export class DatabaseRepositories {
   public readonly user: UserRepository
+  public readonly userSession: UserSessionRepository
 
   constructor(private prisma: PrismaClient) {
     this.user = new UserRepository(prisma)
+    this.userSession = new UserSessionRepository(prisma)
   }
 
   async disconnect(): Promise<void> {
@@ -23,3 +26,4 @@ export class DatabaseRepositories {
 }
 
 export * from './user.repository'
+export * from './user-session.repository'

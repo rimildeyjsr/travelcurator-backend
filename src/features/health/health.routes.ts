@@ -4,6 +4,7 @@ import { config } from '@shared/config';
 import { NotFoundError, AppError } from '@shared/errors';
 import { HelloRequestSchema, HelloResponseSchema } from '@shared/schemas/hello.schema';
 import { db } from '@shared/database';
+import { requireAuth } from '@shared/middleware';
 
 export interface ApiInfoResponse {
   message: string;
@@ -18,7 +19,7 @@ async function healthRoutes(
   // Add TypeBox support to this route plugin
   const server = fastify.withTypeProvider<TypeBoxTypeProvider>();
 
-  // Your existing health check endpoint
+  // Health check endpoint
   fastify.get('/health', async () => {
     const memUsage = process.memoryUsage();
 
@@ -44,7 +45,7 @@ async function healthRoutes(
     };
   });
 
-  // Your existing API info endpoint
+  // API info endpoint
   fastify.get<{ Reply: ApiInfoResponse }>('/api/info', async () => {
     return {
       message: 'TravelCurator API - Your AI travel companion',
@@ -54,7 +55,7 @@ async function healthRoutes(
     };
   });
 
-  // NEW: Add a validated hello endpoint
+  // Validated hello endpoint
   server.post('/api/hello', {
     schema: {
       body: HelloRequestSchema,
@@ -72,7 +73,18 @@ async function healthRoutes(
     };
   });
 
-  // Your existing error testing endpoints
+  // NEW: Protected route to test authentication
+  server.get('/api/protected/profile', {
+    preHandler: requireAuth()
+  }, async (request) => {
+    return {
+      message: 'This is a protected route!',
+      user: request.user,
+      timestamp: new Date().toISOString()
+    }
+  })
+
+  // Error testing endpoints (development only)
   if (config.server.nodeEnv === 'development') {
     fastify.get('/api/test/404', async () => {
       throw new NotFoundError('Test resource');
