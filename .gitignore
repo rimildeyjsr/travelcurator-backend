@@ -1,7 +1,23 @@
+# Environment variables
 .env
-node_modules/
-dist/
-.tsbuildinfo
+.env.local
+.env.development
+.env.production
 
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database
+*.db
+*.sqlite
+
+# IDE
+.vscode/
 .idea/
-/src/generated/prisma
+
+# OS
+.DS_Store
+Thumbs.db
