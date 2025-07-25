@@ -3,7 +3,8 @@ import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from '@shared/config';
 import { registerErrorHandler } from '@shared/errors';
 import healthRoutes from './features/health/health.routes.js';
-import authRoutes from './features/auth/auth.routes.js';  // ← Add this
+import authRoutes from './features/auth/auth.routes.js';
+import recommendationsRoutes from './features/recommendations/recommendations.routes.js'; // Add this
 
 const fastify = Fastify({
   logger: {
@@ -18,7 +19,7 @@ const fastify = Fastify({
 registerErrorHandler(fastify);
 
 const setupServer = async () => {
-  // Your existing middleware setup
+  // Your existing middleware setup...
   await fastify.register(import('@fastify/helmet'), {
     contentSecurityPolicy: {
       directives: {
@@ -51,10 +52,11 @@ const setupServer = async () => {
 
   // Register route modules
   await fastify.register(healthRoutes);
-  await fastify.register(authRoutes);  // ← Add this
+  await fastify.register(authRoutes);
+  await fastify.register(recommendationsRoutes); // Add this line
 };
 
-// Your existing start function
+// Your existing start function...
 const start = async (): Promise<void> => {
   try {
     await setupServer();
