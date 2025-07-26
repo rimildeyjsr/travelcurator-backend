@@ -40,7 +40,7 @@ export interface AIProvider {
   getModelName(): string;
 }
 
-export interface ProviderConfig {
+export interface AIProviderConfig {
   gemini?: {
     apiKey: string;
     model: 'gemini-1.5-flash' | 'gemini-1.5-pro';

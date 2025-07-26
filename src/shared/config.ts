@@ -19,6 +19,7 @@ interface Config {
     openai: string | undefined;
     mapbox: string | undefined;
     gemini: string | undefined;
+    googlePlaces: string | undefined;
   };
   ai: {
     provider: 'gemini' | 'openai' | 'claude';
@@ -26,6 +27,18 @@ interface Config {
     enableCaching: boolean;
     cacheTimeout: number;
     maxRetries: number;
+    timeout: number;
+  };
+  location: {
+    primaryProvider: 'osm' | 'google';
+    fallbackProvider?: 'osm' | 'google';
+    enableCaching: boolean;
+    cacheTimeout: number;
+    defaultRadius: number;
+    maxRadius: number;
+    resultsPerCategory: number;
+    osmEndpoint: string;
+    osmUserAgent: string;
     timeout: number;
   };
 }
@@ -53,38 +66,64 @@ export const config: Config = {
   },
   auth: {
     jwtSecret: getEnvVar('JWT_SECRET'),
-    accessTokenExpiry: '15m',        // Short-lived for security
-    refreshTokenExpiry: '7d',        // Long-lived for UX
-    saltRounds: 10                   // bcrypt salt rounds
+    accessTokenExpiry: '15m',
+    refreshTokenExpiry: '7d',
+    saltRounds: 10
   },
   apis: {
     openai: getOptionalEnvVar('OPENAI_API_KEY'),
     mapbox: getOptionalEnvVar('MAPBOX_API_KEY'),
-    gemini: getOptionalEnvVar('GEMINI_API_KEY')
+    gemini: getOptionalEnvVar('GEMINI_API_KEY'),
+    googlePlaces: getOptionalEnvVar('GOOGLE_PLACES_API_KEY')
   },
   ai: (() => {
-  const provider = getEnvVar('AI_PROVIDER', 'gemini');
-  const fallbackProvider = getOptionalEnvVar('AI_FALLBACK_PROVIDER');
+    const provider = getEnvVar('AI_PROVIDER', 'gemini');
+    const fallbackProvider = getOptionalEnvVar('AI_FALLBACK_PROVIDER');
 
-  // Validate provider values
-  const validProviders = ['gemini', 'openai', 'claude'] as const;
-  if (!validProviders.includes(provider as any)) {
-    throw new Error(`Invalid AI_PROVIDER: ${provider}. Must be one of: ${validProviders.join(', ')}`);
-  }
+    const validProviders = ['gemini', 'openai', 'claude'] as const;
+    if (!validProviders.includes(provider as any)) {
+      throw new Error(`Invalid AI_PROVIDER: ${provider}. Must be one of: ${validProviders.join(', ')}`);
+    }
 
-  if (fallbackProvider && !validProviders.includes(fallbackProvider as any)) {
-    throw new Error(`Invalid AI_FALLBACK_PROVIDER: ${fallbackProvider}. Must be one of: ${validProviders.join(', ')}`);
-  }
+    if (fallbackProvider && !validProviders.includes(fallbackProvider as any)) {
+      throw new Error(`Invalid AI_FALLBACK_PROVIDER: ${fallbackProvider}. Must be one of: ${validProviders.join(', ')}`);
+    }
 
-  return {
-    provider: provider as 'gemini' | 'openai' | 'claude',
-    ...(fallbackProvider && { fallbackProvider: fallbackProvider as 'gemini' | 'openai' | 'claude' }),
-    enableCaching: getEnvVar('AI_ENABLE_CACHING', 'true') === 'true',
-    cacheTimeout: parseInt(getEnvVar('AI_CACHE_TIMEOUT', '300'), 10),
-    maxRetries: parseInt(getEnvVar('AI_MAX_RETRIES', '3'), 10),
-    timeout: parseInt(getEnvVar('AI_TIMEOUT', '30000'), 10),
-  };
-})(),
+    return {
+      provider: provider as 'gemini' | 'openai' | 'claude',
+      ...(fallbackProvider && { fallbackProvider: fallbackProvider as 'gemini' | 'openai' | 'claude' }),
+      enableCaching: getEnvVar('AI_ENABLE_CACHING', 'true') === 'true',
+      cacheTimeout: parseInt(getEnvVar('AI_CACHE_TIMEOUT', '300'), 10),
+      maxRetries: parseInt(getEnvVar('AI_MAX_RETRIES', '3'), 10),
+      timeout: parseInt(getEnvVar('AI_TIMEOUT', '30000'), 10),
+    };
+  })(),
+  location: (() => {
+    const provider = getEnvVar('LOCATION_PROVIDER', 'osm');
+    const fallbackProvider = getOptionalEnvVar('LOCATION_FALLBACK_PROVIDER');
+
+    const validProviders = ['osm', 'google'] as const;
+    if (!validProviders.includes(provider as any)) {
+      throw new Error(`Invalid LOCATION_PROVIDER: ${provider}. Must be one of: ${validProviders.join(', ')}`);
+    }
+
+    if (fallbackProvider && !validProviders.includes(fallbackProvider as any)) {
+      throw new Error(`Invalid LOCATION_FALLBACK_PROVIDER: ${fallbackProvider}. Must be one of: ${validProviders.join(', ')}`);
+    }
+
+    return {
+      primaryProvider: provider as 'osm' | 'google',
+      ...(fallbackProvider && { fallbackProvider: fallbackProvider as 'osm' | 'google' }),
+      enableCaching: getEnvVar('LOCATION_ENABLE_CACHING', 'true') === 'true',
+      cacheTimeout: parseInt(getEnvVar('LOCATION_CACHE_TIMEOUT', '300'), 10), // 5 minutes
+      defaultRadius: parseInt(getEnvVar('LOCATION_DEFAULT_RADIUS', '2000'), 10), // 2km
+      maxRadius: parseInt(getEnvVar('LOCATION_MAX_RADIUS', '10000'), 10), // 10km
+      resultsPerCategory: parseInt(getEnvVar('LOCATION_RESULTS_PER_CATEGORY', '10'), 10),
+      osmEndpoint: getEnvVar('OSM_ENDPOINT', 'https://overpass-api.de/api/interpreter'),
+      osmUserAgent: getEnvVar('OSM_USER_AGENT', 'TravelCurator/1.0'),
+      timeout: parseInt(getEnvVar('LOCATION_TIMEOUT', '10000'), 10), // 10 seconds
+    };
+  })(),
 };
 
 // Validate critical configuration on startup
@@ -93,3 +132,5 @@ if (config.server.nodeEnv === 'production' && config.auth.jwtSecret === 'your_su
 }
 
 console.log(`🔧 Configuration loaded for ${config.server.nodeEnv} environment`);
+console.log(`🤖 AI Provider: ${config.ai.provider}`);
+console.log(`🗺️ Location Provider: ${config.location.primaryProvider}`);

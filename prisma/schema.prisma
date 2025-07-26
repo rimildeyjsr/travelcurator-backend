@@ -8,50 +8,49 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
+  id              String           @id @default(cuid())
+  email           String           @unique
+  password        String
+  createdAt       DateTime         @default(now()) @map("created_at")
+  preferences     Json?
   recommendations Recommendation[]
   sessions        UserSession[]
-
-  // JSONB fields
-  preferences Json?
 
   @@map("users")
 }
 
 model Location {
-  id        String   @id @default(cuid())
-  name      String
-  latitude  Float
-  longitude Float
-  category  String
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
+  id              String           @id @default(cuid())
+  name            String
+  latitude        Float
+  longitude       Float
+  category        String
+  createdAt       DateTime         @default(now()) @map("created_at")
+  metadata        Json?
+  source          String?          @default("manual") @db.VarChar(50)
+  externalId      String?          @map("external_id") @db.VarChar(255)
+  lastUpdated     DateTime?        @default(now()) @map("last_updated")
+  verified        Boolean?         @default(false)
+  address         String?
+  description     String?
   recommendations Recommendation[]
 
-  // JSONB fields
-  metadata Json?
-
+  @@index([source])
+  @@index([externalId])
+  @@index([category])
+  @@index([lastUpdated])
+  @@index([latitude, longitude], map: "locations_coordinates_idx")
   @@map("locations")
 }
 
 model Recommendation {
-  id        String   @id @default(cuid())
-  userId    String   @map("user_id")
-  locationId String  @map("location_id")
-  createdAt DateTime @default(now()) @map("created_at")
-
-  // Relationships
-  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
-
-  // JSONB fields
-  aiContext Json? @map("ai_context")
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  locationId String   @map("location_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+  aiContext  Json?    @map("ai_context")
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("recommendations")
 }
@@ -62,9 +61,7 @@ model UserSession {
   refreshToken String   @unique @map("refresh_token")
   expiresAt    DateTime @map("expires_at")
   createdAt    DateTime @default(now()) @map("created_at")
-
-  // Relationships
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("user_sessions")
 }
