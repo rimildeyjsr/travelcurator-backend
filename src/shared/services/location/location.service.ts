@@ -10,6 +10,7 @@ import {
   MOOD_CATEGORY_MAPPING,
   LocationServiceConfig
 } from './types';
+import { OSMProvider } from './providers';
 
 interface CacheEntry {
   data: LocationSearchResponse;
@@ -36,14 +37,24 @@ export class LocationService {
   }
 
   private initializeProviders(): void {
-    // We'll import and initialize providers here
-    // For now, we'll prepare the structure
+    // Initialize OSM provider
+    try {
+      const osmProvider = new OSMProvider();
+      if (osmProvider.validateConfig()) {
+        this.providers.set('osm', osmProvider);
+        console.log('✅ OSM provider initialized successfully');
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize OSM provider:', error);
+    }
 
-    // Future: Dynamic provider loading
-    // if (this.serviceConfig.primaryProvider === 'osm') {
-    //   const { OSMProvider } = await import('./providers/osm.provider');
-    //   this.providers.set('osm', new OSMProvider());
-    // }
+    // Future: Initialize other providers
+    // Google Places provider would go here
+
+    // Validate that primary provider is available
+    if (!this.providers.has(this.serviceConfig.primaryProvider)) {
+      console.warn(`⚠️ Primary location provider '${this.serviceConfig.primaryProvider}' not available, using database only`);
+    }
   }
 
   async searchNearby(request: LocationSearchRequest): Promise<LocationSearchResponse> {
@@ -183,7 +194,18 @@ export class LocationService {
       throw new Error(`Primary provider '${this.serviceConfig.primaryProvider}' not available`);
     }
 
-    return await provider.searchNearby(request);
+    // Update the request to fix the coordinate assignment issue
+    const providerRequest: LocationSearchRequest = {
+      latitude: request.latitude,
+      longitude: request.longitude,
+      radius: request.radius,
+      categories: request.categories,
+      mood: request.mood,
+      limit: request.limit,
+      excludeChains: request.excludeChains
+    };
+
+    return await provider.searchNearby(providerRequest);
   }
 
   private async storePlacesInDatabase(places: Place[]): Promise<void> {
@@ -296,6 +318,15 @@ export class LocationService {
           ...(location.metadata as any)
         }
       };
+    }
+
+    // If not in database, try external providers with external ID
+    if (id.startsWith('osm_')) {
+      const provider = this.providers.get('osm');
+      if (provider) {
+        const externalId = id.replace('osm_node_', '').replace('osm_way_', '').replace('osm_relation_', '');
+        return await provider.getPlaceDetails(externalId);
+      }
     }
 
     return null;

@@ -1,10 +1,12 @@
+// src/index.ts (UPDATED)
 import Fastify from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from '@shared/config';
 import { registerErrorHandler } from '@shared/errors';
 import healthRoutes from './features/health/health.routes.js';
 import authRoutes from './features/auth/auth.routes.js';
-import recommendationsRoutes from './features/recommendations/recommendations.routes.js'; // Add this
+import recommendationsRoutes from './features/recommendations/recommendations.routes.js';
+import locationsRoutes from './features/locations/locations.routes.js'; // Add this
 
 const fastify = Fastify({
   logger: {
@@ -19,7 +21,7 @@ const fastify = Fastify({
 registerErrorHandler(fastify);
 
 const setupServer = async () => {
-  // Your existing middleware setup...
+  // Security middleware
   await fastify.register(import('@fastify/helmet'), {
     contentSecurityPolicy: {
       directives: {
@@ -31,6 +33,7 @@ const setupServer = async () => {
     },
   });
 
+  // CORS configuration
   await fastify.register(import('@fastify/cors'), {
     origin: config.server.nodeEnv === 'development'
       ? ['http://localhost:3000', 'http://localhost:19006']
@@ -38,6 +41,7 @@ const setupServer = async () => {
     credentials: true,
   });
 
+  // Rate limiting
   await fastify.register(import('@fastify/rate-limit'), {
     max: config.server.nodeEnv === 'development' ? 1000 : 100,
     timeWindow: '1 minute',
@@ -53,10 +57,10 @@ const setupServer = async () => {
   // Register route modules
   await fastify.register(healthRoutes);
   await fastify.register(authRoutes);
-  await fastify.register(recommendationsRoutes); // Add this line
+  await fastify.register(recommendationsRoutes);
+  await fastify.register(locationsRoutes);
 };
 
-// Your existing start function...
 const start = async (): Promise<void> => {
   try {
     await setupServer();
@@ -68,6 +72,16 @@ const start = async (): Promise<void> => {
 
     console.log(`🚀 TravelCurator Backend running on http://localhost:${config.server.port}`);
     console.log(`📍 Environment: ${config.server.nodeEnv}`);
+    console.log(`🤖 AI Provider: ${config.ai.provider}`);
+    console.log(`🗺️ Location Provider: ${config.location.primaryProvider}`);
+
+    // Log available endpoints
+    console.log('\n📡 Available API Endpoints:');
+    console.log('  Health: GET /health');
+    console.log('  Auth: POST /api/auth/register, /api/auth/login, /api/auth/refresh');
+    console.log('  AI: POST /api/recommendations/generate');
+    console.log('  Locations: POST /api/locations/search, GET /api/locations/:id');
+    console.log('  Location Mood: GET /api/locations/nearby/:mood');
   } catch (err) {
     console.error('Server failed to start:', err);
     process.exit(1);

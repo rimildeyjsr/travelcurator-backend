@@ -29,10 +29,10 @@ export interface Place {
     latitude: number;
     longitude: number;
   };
-  distance?: number; // meters from search center
-  description?: string; // Made optional
-  address?: string; // Made optional
-  metadata: PlaceMetadata;
+  distance?: number | null; // meters from search center
+  description?: string | null; // Made optional
+  address?: string | null; // Made optional
+  metadata?: PlaceMetadata;
 }
 
 export interface PlaceMetadata {
