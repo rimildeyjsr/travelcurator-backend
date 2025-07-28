@@ -1,3 +1,5 @@
+// src/shared/services/location/types.ts - FIXED VERSION
+
 export interface LocationSearchRequest {
   latitude: number;
   longitude: number;
@@ -30,8 +32,8 @@ export interface Place {
     longitude: number;
   };
   distance?: number | null; // meters from search center
-  description?: string | null; // Made optional
-  address?: string | null; // Made optional
+  description?: string; // FIX: Remove null, use undefined only
+  address?: string; // FIX: Remove null, use undefined only
   metadata?: PlaceMetadata;
 }
 
@@ -56,16 +58,14 @@ export interface PlaceMetadata {
     priceLevel?: number;
   };
 
-  // General place information
+  // General place information - FIX: Use proper optional types for exactOptionalPropertyTypes
   contact?: {
     phone?: string;
     website?: string;
     email?: string;
   };
 
-  hours?: {
-    [day: string]: string; // "09:00-17:00" or "closed"
-  };
+  hours?: Record<string, string>; // "09:00-17:00" or "closed"
 
   features?: string[]; // ["wifi", "wheelchair_accessible", "outdoor_seating"]
 
@@ -139,7 +139,8 @@ export enum POICategory {
   PARKING = 'parking'
 }
 
-export const POI_CATEGORY_MAPPING = {
+// FIX: Make the mapping readonly and properly typed
+export const POI_CATEGORY_MAPPING: Readonly<Record<POICategory, readonly string[]>> = {
   // Food & Dining
   [POICategory.RESTAURANT]: ['amenity=restaurant'],
   [POICategory.CAFE]: ['amenity=cafe'],
@@ -201,34 +202,34 @@ export const POI_CATEGORY_MAPPING = {
   [POICategory.PARKING]: ['amenity=parking']
 } as const;
 
-export const MOOD_CATEGORY_MAPPING = {
+export const MOOD_CATEGORY_MAPPING: Readonly<Record<string, readonly POICategory[]>> = {
   energetic: [
     POICategory.PARK, POICategory.FITNESS_CENTRE, POICategory.SWIMMING_POOL,
     POICategory.SPORTS_CENTRE, POICategory.BEACH, POICategory.VIEWPOINT,
     POICategory.RESTAURANT, POICategory.CAFE, POICategory.ATM, POICategory.TOILETS
-  ] as POICategory[],
+  ],
   relaxed: [
     POICategory.SPA, POICategory.PARK, POICategory.GARDEN, POICategory.NATURE_RESERVE,
     POICategory.CAFE, POICategory.LIBRARY, POICategory.BEACH,
     POICategory.PHARMACY, POICategory.TOILETS
-  ] as POICategory[],
+  ],
   curious: [
     POICategory.MUSEUM, POICategory.GALLERY, POICategory.ATTRACTION, POICategory.MONUMENT,
     POICategory.CASTLE, POICategory.LIBRARY, POICategory.VIEWPOINT,
     POICategory.CAFE, POICategory.RESTAURANT, POICategory.ATM, POICategory.TOILETS
-  ] as POICategory[],
+  ],
   hungry: [
     POICategory.RESTAURANT, POICategory.CAFE, POICategory.FAST_FOOD, POICategory.ICE_CREAM,
     POICategory.MARKETPLACE, POICategory.MARKET,
     POICategory.ATM, POICategory.TOILETS
-  ] as POICategory[],
+  ],
   cultural: [
     POICategory.MUSEUM, POICategory.GALLERY, POICategory.THEATRE, POICategory.CINEMA,
     POICategory.MONUMENT, POICategory.CASTLE, POICategory.LIBRARY,
     POICategory.RESTAURANT, POICategory.CAFE, POICategory.SHOP,
     POICategory.ATM, POICategory.TOILETS
-  ] as POICategory[]
-};
+  ]
+} as const;
 
 export interface LocationProvider {
   searchNearby(request: LocationSearchRequest): Promise<LocationSearchResponse>;

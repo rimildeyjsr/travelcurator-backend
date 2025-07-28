@@ -1,12 +1,11 @@
-// src/index.ts (UPDATED)
 import Fastify from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import { config } from '@shared/config';
 import { registerErrorHandler } from '@shared/errors';
-import healthRoutes from './features/health/health.routes.js';
-import authRoutes from './features/auth/auth.routes.js';
-import recommendationsRoutes from './features/recommendations/recommendations.routes.js';
-import locationsRoutes from './features/locations/locations.routes.js'; // Add this
+import healthRoutes from './features/health/health.routes'; // FIX: Remove .js
+import authRoutes from './features/auth/auth.routes'; // FIX: Remove .js
+import recommendationsRoutes from './features/recommendations/recommendations.routes'; // FIX: Remove .js
+import locationsRoutes from './features/locations/locations.routes'; // FIX: Remove .js
 
 const fastify = Fastify({
   logger: {

@@ -1,3 +1,5 @@
+// src/shared/services/location/providers/osm.provider.ts - FIXED VERSION
+
 import { config } from '@shared/config';
 import {
   LocationProvider,
@@ -98,6 +100,10 @@ export class OSMProvider implements LocationProvider {
       }
 
       const element = response.elements[0];
+      if (!element) {
+        return null;
+      }
+
       return this.elementToPlace(element, 0);
     } catch (error) {
       console.warn(`Failed to get OSM place details for ${externalId}:`, error);
@@ -173,13 +179,15 @@ export class OSMProvider implements LocationProvider {
         throw new Error(`OSM API error: ${response.status} ${response.statusText}`);
       }
 
-      const data = await response.json();
+      // FIX: Type the response data properly
+      const data: unknown = await response.json();
 
-      if (!data.elements) {
+      // FIX: Add type guard to check if data has the expected structure
+      if (!this.isValidOSMResponse(data)) {
         throw new Error('Invalid OSM response format');
       }
 
-      return data as OSMResponse;
+      return data;
     } catch (error) {
       clearTimeout(timeoutId);
 
@@ -189,6 +197,16 @@ export class OSMProvider implements LocationProvider {
 
       throw error;
     }
+  }
+
+  // FIX: Add type guard function
+  private isValidOSMResponse(data: unknown): data is OSMResponse {
+    return (
+      typeof data === 'object' &&
+      data !== null &&
+      'elements' in data &&
+      Array.isArray((data as any).elements)
+    );
   }
 
   private parseResponse(response: OSMResponse, request: LocationSearchRequest): Place[] {
@@ -225,17 +243,23 @@ export class OSMProvider implements LocationProvider {
     const category = this.categorizeElement(element);
     const subcategory = this.getSubcategory(element);
 
-    return {
+    // FIX: Handle optional properties properly to satisfy exactOptionalPropertyTypes
+    const contact = this.extractContact(element);
+    const hours = this.extractHours(element);
+    const features = this.extractFeatures(element);
+    const address = this.extractAddress(element);
+    const description = this.extractDescription(element);
+
+    // FIX: Build the place object conditionally to avoid undefined assignment
+    const place: Place = {
       id: `osm_${element.type}_${element.id}`,
       name,
       category,
       subcategory,
       coordinates,
       distance,
-      address: this.extractAddress(element),
-      description: this.extractDescription(element),
       metadata: {
-        source: 'osm',
+        source: 'osm' as const,
         externalId: `${element.type}/${element.id}`,
         lastUpdated: new Date(),
         verified: true,
@@ -244,11 +268,22 @@ export class OSMProvider implements LocationProvider {
           type: element.type,
           tags: element.tags
         },
-        contact: this.extractContact(element),
-        hours: this.extractHours(element),
-        features: this.extractFeatures(element)
+        // FIX: Only include optional properties if they exist (not undefined)
+        ...(contact && { contact }),
+        ...(hours && { hours }),
+        ...(features.length > 0 && { features })
       }
     };
+
+    // FIX: Only add optional properties if they have actual values
+    if (address) {
+      place.address = address;
+    }
+    if (description) {
+      place.description = description;
+    }
+
+    return place;
   }
 
   private extractName(element: OSMElement): string | null {
@@ -274,11 +309,11 @@ export class OSMProvider implements LocationProvider {
     const tags = element.tags;
 
     // Try to match against our category mappings
-    for (const [category, osmTags] of Object.entries(POI_CATEGORY_MAPPING)) {
+    for (const [categoryKey, osmTags] of Object.entries(POI_CATEGORY_MAPPING)) {
       for (const osmTag of osmTags) {
         const [key, value] = osmTag.split('=');
-        if (tags[key] === value) {
-          return category as POICategory;
+        if (key && value && tags[key] === value) {
+          return categoryKey as POICategory;
         }
       }
     }
@@ -346,9 +381,10 @@ export class OSMProvider implements LocationProvider {
     return tags.description || tags.note || null;
   }
 
+  // FIX: Return undefined instead of empty object for better type safety
   private extractContact(element: OSMElement): { phone?: string; website?: string; email?: string } | undefined {
     const tags = element.tags;
-    const contact: any = {};
+    const contact: { phone?: string; website?: string; email?: string } = {};
 
     if (tags.phone) contact.phone = tags.phone;
     if (tags.website) contact.website = tags.website;
@@ -357,6 +393,7 @@ export class OSMProvider implements LocationProvider {
     return Object.keys(contact).length > 0 ? contact : undefined;
   }
 
+  // FIX: Return undefined instead of empty object for better type safety
   private extractHours(element: OSMElement): Record<string, string> | undefined {
     const tags = element.tags;
     const hours: Record<string, string> = {};
@@ -370,8 +407,9 @@ export class OSMProvider implements LocationProvider {
     const days = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
     for (const day of days) {
       const tagKey = `opening_hours:${day}`;
-      if (tags[tagKey]) {
-        hours[day] = tags[tagKey];
+      const dayHours = tags[tagKey];
+      if (dayHours) {
+        hours[day] = dayHours;
       }
     }
 

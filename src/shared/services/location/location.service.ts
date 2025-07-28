@@ -130,7 +130,9 @@ export class LocationService {
     // Apply mood-based category selection if no categories specified
     let categories = request.categories;
     if (!categories && request.mood) {
-      categories = MOOD_CATEGORY_MAPPING[request.mood] || [];
+      // FIX: Convert readonly array to mutable array
+      const moodCategories = MOOD_CATEGORY_MAPPING[request.mood];
+      categories = moodCategories ? [...moodCategories] : [];
     }
 
     return {
@@ -212,16 +214,23 @@ export class LocationService {
     // Store places in database for future caching
     for (const place of places) {
       try {
+        // FIX: Handle possibly undefined metadata
+        const metadata = place.metadata;
+        if (!metadata) {
+          console.warn(`Skipping place ${place.name}: no metadata`);
+          continue;
+        }
+
         await db.location.upsertLocation({
-          externalId: place.metadata.externalId,
-          source: place.metadata.source,
+          externalId: metadata.externalId,
+          source: metadata.source,
           name: place.name,
           latitude: place.coordinates.latitude,
           longitude: place.coordinates.longitude,
           category: place.category,
           address: place.address || null,
           description: place.description || null,
-          metadata: place.metadata
+          metadata: metadata
         });
       } catch (error) {
         // Log error but don't fail the entire operation
