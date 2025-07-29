@@ -1,6 +1,6 @@
 // src/shared/services/location/providers/google.provider.ts
 
-import { PlacesApi, PlaceData, FieldMask } from '@googlemaps/places';
+import { PlacesClient } from '@googlemaps/places';
 import { config } from '@shared/config';
 import {
   LocationProvider,
@@ -11,6 +11,7 @@ import {
   PlaceMetadata
 } from '../types';
 
+// Define interfaces for Google Places API responses
 interface GooglePlace {
   id: string;
   displayName?: { text: string };
@@ -37,6 +38,10 @@ interface GooglePlace {
   };
   nationalPhoneNumber?: string;
   websiteUri?: string;
+}
+
+interface GoogleSearchResponse {
+  places?: GooglePlace[];
 }
 
 // Google Place Types to POI Category mapping
@@ -89,7 +94,7 @@ const GOOGLE_TYPE_TO_CATEGORY: Record<string, POICategory> = {
 };
 
 export class GooglePlacesProvider implements LocationProvider {
-  private client: PlacesApi;
+  private client: PlacesClient;
   private apiKey: string;
 
   constructor() {
@@ -98,47 +103,57 @@ export class GooglePlacesProvider implements LocationProvider {
     }
 
     this.apiKey = config.apis.googlePlaces;
-    this.client = new PlacesApi({
-      apiKey: this.apiKey,
-    });
+
+    // Initialize the Places client - no constructor options needed for API key auth
+    // We'll pass the API key in headers for each request
+    this.client = new PlacesClient();
   }
 
   async searchNearby(request: LocationSearchRequest): Promise<LocationSearchResponse> {
     const startTime = Date.now();
 
     try {
-      // Use Google's Nearby Search API
-      const response = await this.client.searchNearby({
-        // Request body
-        requestBody: {
-          includedTypes: this.mapCategoriesToGoogleTypes(request.categories || []),
-          maxResultCount: request.limit || 20,
-          locationRestriction: {
-            circle: {
-              center: {
-                latitude: request.latitude,
-                longitude: request.longitude,
-              },
-              radius: request.radius || 2000,
+      // Convert our request to Google Places API format
+      const searchRequest = {
+        locationRestriction: {
+          circle: {
+            center: {
+              latitude: request.latitude,
+              longitude: request.longitude,
             },
+            radius: request.radius || 2000,
           },
-          // Only request the fields we need to minimize cost
-          fieldMask: [
-            'places.id',
-            'places.displayName',
-            'places.formattedAddress',
-            'places.location',
-            'places.types',
-            'places.rating',
-            'places.userRatingCount',
-            'places.priceLevel',
-            'places.businessStatus',
-          ].join(',') as FieldMask,
+        },
+        includedTypes: this.mapCategoriesToGoogleTypes(request.categories || []),
+        maxResultCount: request.limit || 20,
+      };
+
+      // Define field mask for the response
+      const fieldMask = [
+        'places.id',
+        'places.displayName',
+        'places.formattedAddress',
+        'places.location',
+        'places.types',
+        'places.rating',
+        'places.userRatingCount',
+        'places.priceLevel',
+        'places.businessStatus',
+      ].join(',');
+
+      // Use searchNearby method with proper authentication
+      const [response] = await this.client.searchNearby(searchRequest, {
+        otherArgs: {
+          headers: {
+            'X-Goog-FieldMask': fieldMask,
+            'X-Goog-Api-Key': this.apiKey,
+          },
         },
       });
 
+      const googleResponse = response as GoogleSearchResponse;
       const places = this.parseGooglePlaces(
-        response.data.places || [],
+        googleResponse.places || [],
         request.latitude,
         request.longitude
       );
@@ -161,26 +176,36 @@ export class GooglePlacesProvider implements LocationProvider {
 
   async getPlaceDetails(placeId: string): Promise<Place | null> {
     try {
-      const response = await this.client.getPlace({
+      const request = {
         name: `places/${placeId}`,
-        fieldMask: [
-          'id',
-          'displayName',
-          'formattedAddress',
-          'location',
-          'types',
-          'rating',
-          'userRatingCount',
-          'priceLevel',
-          'businessStatus',
-          'photos',
-          'regularOpeningHours',
-          'nationalPhoneNumber',
-          'websiteUri',
-        ].join(',') as FieldMask,
+      };
+
+      const fieldMask = [
+        'id',
+        'displayName',
+        'formattedAddress',
+        'location',
+        'types',
+        'rating',
+        'userRatingCount',
+        'priceLevel',
+        'businessStatus',
+        'photos',
+        'regularOpeningHours',
+        'nationalPhoneNumber',
+        'websiteUri',
+      ].join(',');
+
+      const [response] = await this.client.getPlace(request, {
+        otherArgs: {
+          headers: {
+            'X-Goog-FieldMask': fieldMask,
+            'X-Goog-Api-Key': this.apiKey,
+          },
+        },
       });
 
-      const googlePlace = response.data as GooglePlace;
+      const googlePlace = response as GooglePlace;
       if (!googlePlace.location) {
         return null;
       }
@@ -261,7 +286,6 @@ export class GooglePlacesProvider implements LocationProvider {
     // Build hours
     const hours: Record<string, string> = {};
     if (googlePlace.regularOpeningHours?.periods) {
-      // Convert Google's complex opening hours to simple format
       const periods = googlePlace.regularOpeningHours.periods;
       for (const period of periods) {
         const dayName = this.getDayName(period.open.day);

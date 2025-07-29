@@ -1,5 +1,3 @@
-// src/features/locations/locations.routes.ts - ENHANCED VERSION
-
 import { FastifyInstance } from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import {
@@ -11,6 +9,7 @@ import { locationService } from '@shared/services';
 import { requireAuth } from '@shared/middleware';
 import { AppError } from '@shared/errors';
 import { config } from '@shared/config';
+import { POICategory } from '@shared/services/location/types';
 
 async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
   const server = fastify.withTypeProvider<TypeBoxTypeProvider>();
@@ -26,21 +25,88 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   }, async (request) => {
     try {
-      const searchResult = await locationService.searchNearby(request.body);
+      const {
+        latitude,
+        longitude,
+        radius,
+        categories,
+        mood,
+        limit,
+        excludeChains
+      } = request.body;
+
+      // Build service request with proper defaults to avoid undefined values
+      const serviceRequest = {
+        latitude,
+        longitude,
+        // Provide defaults for optional properties to satisfy exactOptionalPropertyTypes
+        ...(radius !== undefined && { radius }),
+        ...(categories !== undefined && { categories: categories.map(cat => cat as POICategory) }),
+        ...(mood !== undefined && { mood }),
+        ...(limit !== undefined && { limit }),
+        ...(excludeChains !== undefined && { excludeChains })
+      };
+
+      const searchResult = await locationService.searchNearby(serviceRequest);
+
+      // Convert service response to match schema exactly
+      const response = {
+        places: searchResult.places.map(place => {
+          // Ensure source is one of the allowed values, fallback to 'manual' if unknown
+          const validSource = place.metadata?.source;
+          const schemaSource: 'osm' | 'google' | 'manual' =
+            validSource === 'osm' || validSource === 'google' || validSource === 'manual'
+              ? validSource
+              : 'manual';
+
+          return {
+            id: place.id,
+            name: place.name,
+            category: place.category as any, // Cast to match schema literal types
+            subcategory: place.subcategory,
+            coordinates: place.coordinates,
+            // Only include distance if it's a valid number
+            ...(typeof place.distance === 'number' && { distance: place.distance }),
+            // Only include optional string properties if they exist
+            ...(place.description && { description: place.description }),
+            ...(place.address && { address: place.address }),
+            metadata: {
+              source: schemaSource,
+              externalId: place.metadata?.externalId || place.id,
+              lastUpdated: place.metadata?.lastUpdated?.toISOString() || new Date().toISOString(),
+              verified: place.metadata?.verified || false,
+              // Include optional nested properties only if they exist
+              ...(place.metadata?.osm && { osm: place.metadata.osm }),
+              ...(place.metadata?.google && { google: place.metadata.google }),
+              ...(place.metadata?.contact && { contact: place.metadata.contact }),
+              ...(place.metadata?.hours && { hours: place.metadata.hours }),
+              ...(place.metadata?.features && { features: place.metadata.features })
+            }
+          };
+        }),
+        metadata: {
+          provider: searchResult.metadata.provider,
+          responseTime: searchResult.metadata.responseTime,
+          totalResults: searchResult.metadata.totalResults,
+          searchRadius: searchResult.metadata.searchRadius,
+          categoriesSearched: searchResult.metadata.categoriesSearched,
+          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached })
+        }
+      };
 
       // Log search for analytics
       fastify.log.info({
         userId: request.user?.id,
-        searchRadius: request.body.radius,
-        categories: request.body.categories,
-        mood: request.body.mood,
-        resultsCount: searchResult.places.length,
-        provider: searchResult.metadata.provider,
-        responseTime: searchResult.metadata.responseTime,
-        cached: searchResult.metadata.cached
+        searchRadius: radius,
+        categories,
+        mood,
+        resultsCount: response.places.length,
+        provider: response.metadata.provider,
+        responseTime: response.metadata.responseTime,
+        cached: response.metadata.cached
       }, 'Location search performed');
 
-      return searchResult;
+      return response;
     } catch (error) {
       fastify.log.error({
         userId: request.user?.id,
@@ -87,10 +153,37 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
         placeName: place.name
       }, 'Place details retrieved');
 
+      // Ensure source is valid for schema
+      const validSource = place.metadata?.source;
+      const schemaSource: 'osm' | 'google' | 'manual' =
+        validSource === 'osm' || validSource === 'google' || validSource === 'manual'
+          ? validSource
+          : 'manual';
+
       return {
-        place,
+        place: {
+          id: place.id,
+          name: place.name,
+          category: place.category as any, // Cast to match schema literal types
+          subcategory: place.subcategory,
+          coordinates: place.coordinates,
+          ...(typeof place.distance === 'number' && { distance: place.distance }),
+          ...(place.description && { description: place.description }),
+          ...(place.address && { address: place.address }),
+          metadata: {
+            source: schemaSource,
+            externalId: place.metadata?.externalId || place.id,
+            lastUpdated: place.metadata?.lastUpdated?.toISOString() || new Date().toISOString(),
+            verified: place.metadata?.verified || false,
+            ...(place.metadata?.osm && { osm: place.metadata.osm }),
+            ...(place.metadata?.google && { google: place.metadata.google }),
+            ...(place.metadata?.contact && { contact: place.metadata.contact }),
+            ...(place.metadata?.hours && { hours: place.metadata.hours }),
+            ...(place.metadata?.features && { features: place.metadata.features })
+          }
+        },
         metadata: {
-          provider: place.metadata?.source || 'unknown',
+          provider: schemaSource,
           lastUpdated: place.metadata?.lastUpdated?.toISOString() || new Date().toISOString(),
           verified: place.metadata?.verified || false
         }
@@ -142,29 +235,72 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     };
 
     try {
-      const searchResult = await locationService.searchNearby({
+      // Build service request with required properties only
+      const serviceRequest = {
         latitude,
         longitude,
         radius,
         mood,
         limit
-      });
+      };
+
+      const searchResult = await locationService.searchNearby(serviceRequest);
+
+      const response = {
+        places: searchResult.places.map(place => {
+          const validSource = place.metadata?.source;
+          const schemaSource: 'osm' | 'google' | 'manual' =
+            validSource === 'osm' || validSource === 'google' || validSource === 'manual'
+              ? validSource
+              : 'manual';
+
+          return {
+            id: place.id,
+            name: place.name,
+            category: place.category as any,
+            subcategory: place.subcategory,
+            coordinates: place.coordinates,
+            ...(typeof place.distance === 'number' && { distance: place.distance }),
+            ...(place.description && { description: place.description }),
+            ...(place.address && { address: place.address }),
+            metadata: {
+              source: schemaSource,
+              externalId: place.metadata?.externalId || place.id,
+              lastUpdated: place.metadata?.lastUpdated?.toISOString() || new Date().toISOString(),
+              verified: place.metadata?.verified || false,
+              ...(place.metadata?.osm && { osm: place.metadata.osm }),
+              ...(place.metadata?.google && { google: place.metadata.google }),
+              ...(place.metadata?.contact && { contact: place.metadata.contact }),
+              ...(place.metadata?.hours && { hours: place.metadata.hours }),
+              ...(place.metadata?.features && { features: place.metadata.features })
+            }
+          };
+        }),
+        metadata: {
+          provider: searchResult.metadata.provider,
+          responseTime: searchResult.metadata.responseTime,
+          totalResults: searchResult.metadata.totalResults,
+          searchRadius: searchResult.metadata.searchRadius,
+          categoriesSearched: searchResult.metadata.categoriesSearched,
+          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached })
+        }
+      };
 
       fastify.log.info({
         userId: request.user?.id,
         mood,
         coordinates: { latitude, longitude },
         radius,
-        resultsCount: searchResult.places.length
+        resultsCount: response.places.length
       }, 'Mood-based location search');
 
-      return searchResult;
+      return response;
     } catch (error) {
       throw new AppError('Mood-based search failed', 500);
     }
   });
 
-  // NEW: Provider status and testing endpoints
+  // Provider status and testing endpoints
   server.get('/api/locations/providers/status', {
     preHandler: requireAuth()
   }, async () => {
@@ -176,7 +312,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  // NEW: Switch provider (for testing)
+  // Switch provider (for testing)
   if (config.server.nodeEnv === 'development') {
     server.post('/api/locations/providers/switch', {
       preHandler: requireAuth(),
@@ -208,7 +344,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
       }
     });
 
-    // NEW: Test provider with sample query
+    // Test provider with sample query
     server.post('/api/locations/providers/test', {
       preHandler: requireAuth(),
       schema: {
