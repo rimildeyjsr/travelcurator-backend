@@ -1,4 +1,4 @@
-// src/shared/services/location/types.ts - FIXED VERSION
+// src/shared/services/location/types.ts - ENHANCED VERSION
 
 export interface LocationSearchRequest {
   latitude: number;
@@ -10,16 +10,29 @@ export interface LocationSearchRequest {
   excludeChains?: boolean; // exclude chain stores/restaurants
 }
 
+// Enhanced metadata interface for multi-provider support
+export interface LocationSearchMetadata {
+  provider: string;
+  responseTime: number;
+  totalResults: number;
+  searchRadius: number;
+  categoriesSearched: string[];
+  cached?: boolean;
+
+  // Hybrid provider specific fields
+  osmPlaces?: number;
+  googleEnrichments?: number;
+  fallbackReason?: string;
+  costOptimization?: {
+    maxGoogleCalls: number;
+    actualGoogleCalls: number;
+    costSavings: string;
+  };
+}
+
 export interface LocationSearchResponse {
   places: Place[];
-  metadata: {
-    provider: string;
-    responseTime: number;
-    totalResults: number;
-    searchRadius: number;
-    categoriesSearched: string[];
-    cached?: boolean;
-  };
+  metadata: LocationSearchMetadata;
 }
 
 export interface Place {
@@ -31,17 +44,18 @@ export interface Place {
     latitude: number;
     longitude: number;
   };
-  distance?: number | null; // meters from search center
-  description?: string; // FIX: Remove null, use undefined only
-  address?: string; // FIX: Remove null, use undefined only
+  distance?: number | null; // meters from search center - allow null for type safety
+  description?: string; // Remove null, use undefined only
+  address?: string; // Remove null, use undefined only
   metadata?: PlaceMetadata;
 }
 
 export interface PlaceMetadata {
-  source: 'osm' | 'google' | 'manual';
+  source: 'osm' | 'google' | 'manual' | 'merged';
   externalId: string;
   lastUpdated: Date;
   verified: boolean;
+  mergeStatus?: string; // 'pending', 'merged', 'conflict', 'osm-only', 'google-only'
 
   // OSM-specific data
   osm?: {
@@ -50,7 +64,7 @@ export interface PlaceMetadata {
     tags: Record<string, string>;
   };
 
-  // Google Places data (future)
+  // Google Places data
   google?: {
     placeId: string;
     rating?: number;
@@ -251,8 +265,8 @@ export interface LocationProviderConfig {
 }
 
 export interface LocationServiceConfig {
-  primaryProvider: 'osm' | 'google';
-  fallbackProvider?: 'osm' | 'google';
+  primaryProvider: 'osm' | 'google' | 'hybrid';
+  fallbackProvider?: 'osm' | 'google' | 'hybrid';
   enableCaching: boolean;
   cacheTimeout: number; // seconds
   defaultRadius: number; // meters

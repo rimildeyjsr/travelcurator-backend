@@ -20,26 +20,55 @@ model User {
 }
 
 model Location {
-  id              String           @id @default(cuid())
-  name            String
-  latitude        Float
-  longitude       Float
-  category        String
-  createdAt       DateTime         @default(now()) @map("created_at")
-  metadata        Json?
-  source          String?          @default("manual") @db.VarChar(50)
-  externalId      String?          @map("external_id") @db.VarChar(255)
-  lastUpdated     DateTime?        @default(now()) @map("last_updated")
-  verified        Boolean?         @default(false)
-  address         String?
-  description     String?
+  id        String   @id @default(cuid())
+  name      String
+  latitude  Float
+  longitude Float
+  category  String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  // Enhanced multi-provider support
+  source String @default("manual") @db.VarChar(50) // 'osm', 'google', 'merged'
+
+  // Source-specific IDs for tracking and refresh
+  osmId         String? @map("osm_id") @db.VarChar(255)
+  googlePlaceId String? @map("google_place_id") @db.VarChar(255)
+
+  // Data freshness tracking
+  osmLastUpdated    DateTime? @map("osm_last_updated")
+  googleLastUpdated DateTime? @map("google_last_updated")
+  lastUpdated       DateTime? @default(now()) @map("last_updated")
+
+  // Google Places specific fields (commonly queried)
+  rating      Decimal? @db.Decimal(2, 1) // 0.0 to 5.0
+  reviewCount Int?     @map("review_count")
+  priceLevel  Int?     @map("price_level") // 0-4 (Google's scale)
+
+  // Basic place information
+  verified    Boolean? @default(false)
+  address     String?
+  description String?
+
+  // Flexible metadata for provider-specific data
+  metadata Json?
+
+  // Data quality and merging
+  qualityScore Decimal? @map("quality_score") @db.Decimal(3, 2) // 0.00 to 1.00
+  mergeStatus  String?  @map("merge_status") @db.VarChar(50) // 'pending', 'merged', 'conflict'
+
   recommendations Recommendation[]
 
+  // Enhanced indexing for multi-provider queries
   @@index([source])
-  @@index([externalId])
+  @@index([osmId])
+  @@index([googlePlaceId])
   @@index([category])
+  @@index([rating])
   @@index([lastUpdated])
+  @@index([qualityScore])
   @@index([latitude, longitude], map: "locations_coordinates_idx")
+  @@index([latitude, longitude, source], map: "locations_geo_source_idx")
+  @@index([category, rating], map: "locations_category_rating_idx")
   @@map("locations")
 }
 

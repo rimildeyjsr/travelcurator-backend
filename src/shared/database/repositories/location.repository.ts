@@ -17,13 +17,42 @@ export interface NearbyLocation {
   category: string;
   createdAt: Date;
   source: string;
-  externalId: string | null;
-  lastUpdated: Date;
+  osmId: string | null;
+  googlePlaceId: string | null;
+  osmLastUpdated: Date | null;
+  googleLastUpdated: Date | null;
+  lastUpdated: Date | null;
+  rating: number | null;
+  reviewCount: number | null;
+  priceLevel: number | null;
+  qualityScore: number | null;
+  mergeStatus: string | null;
   verified: boolean;
   address: string | null;
   description: string | null;
   metadata: any;
   distance: number;
+}
+
+// Enhanced interface for multi-provider location creation
+export interface CreateLocationData {
+  externalId: string;
+  source: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  category: string;
+  address?: string | null;
+  description?: string | null;
+  metadata?: any;
+  // Enhanced multi-provider fields
+  osmId?: string | null;
+  googlePlaceId?: string | null;
+  rating?: number | null;
+  reviewCount?: number | null;
+  priceLevel?: number | null;
+  qualityScore?: number | null;
+  mergeStatus?: string | null; // Allow null explicitly
 }
 
 export class LocationRepository {
@@ -37,11 +66,28 @@ export class LocationRepository {
     return this.prisma.location.findUnique({ where: { id } });
   }
 
+  // Enhanced find methods for multi-provider support
+  async findByOsmId(osmId: string) {
+    return this.prisma.location.findFirst({
+      where: { osmId }
+    });
+  }
+
+  async findByGooglePlaceId(googlePlaceId: string) {
+    return this.prisma.location.findFirst({
+      where: { googlePlaceId }
+    });
+  }
+
   async findByExternalId(externalId: string, source: string) {
     return this.prisma.location.findFirst({
       where: {
-        externalId,
-        source
+        OR: [
+          { osmId: externalId, source: 'osm' },
+          { googlePlaceId: externalId, source: 'google' },
+          { osmId: externalId, source: 'merged' },
+          { googlePlaceId: externalId, source: 'merged' }
+        ]
       }
     });
   }
@@ -74,9 +120,11 @@ export class LocationRepository {
     const locations = await this.prisma.location.findMany({
       where: whereClause,
       take: limit * 2, // Get more than needed for distance filtering
-      orderBy: {
-        createdAt: 'desc'
-      }
+      orderBy: [
+        { qualityScore: 'desc' },
+        { rating: 'desc' },
+        { createdAt: 'desc' }
+      ]
     });
 
     // Calculate exact distances and filter
@@ -95,26 +143,21 @@ export class LocationRepository {
     return locationsWithDistance;
   }
 
-  async upsertLocation(data: {
-    externalId: string;
-    source: string;
-    name: string;
-    latitude: number;
-    longitude: number;
-    category: string;
-    address?: string | null;
-    description?: string | null;
-    metadata?: any;
-  }) {
-    // Use findFirst + create/update pattern
-    const existing = await this.prisma.location.findFirst({
-      where: {
-        externalId: data.externalId,
-        source: data.source
-      }
-    });
+  // Enhanced upsert method for multi-provider data
+  async upsertLocation(data: CreateLocationData) {
+    // Try to find existing location by provider-specific IDs
+    let existing = null;
+
+    if (data.osmId) {
+      existing = await this.findByOsmId(data.osmId);
+    }
+
+    if (!existing && data.googlePlaceId) {
+      existing = await this.findByGooglePlaceId(data.googlePlaceId);
+    }
 
     if (existing) {
+      // Update existing location with new/merged data
       return this.prisma.location.update({
         where: { id: existing.id },
         data: {
@@ -125,15 +168,31 @@ export class LocationRepository {
           address: data.address || null,
           description: data.description || null,
           metadata: data.metadata,
+          source: data.source,
+
+          // Update provider-specific fields only if provided
+          ...(data.osmId && {
+            osmId: data.osmId,
+            osmLastUpdated: new Date()
+          }),
+          ...(data.googlePlaceId && {
+            googlePlaceId: data.googlePlaceId,
+            googleLastUpdated: new Date()
+          }),
+          ...(data.rating !== undefined && { rating: data.rating }),
+          ...(data.reviewCount !== undefined && { reviewCount: data.reviewCount }),
+          ...(data.priceLevel !== undefined && { priceLevel: data.priceLevel }),
+          ...(data.qualityScore !== undefined && { qualityScore: data.qualityScore }),
+          ...(data.mergeStatus && { mergeStatus: data.mergeStatus }),
+
           lastUpdated: new Date(),
           verified: true
         }
       });
     } else {
+      // Create new location
       return this.prisma.location.create({
         data: {
-          externalId: data.externalId,
-          source: data.source,
           name: data.name,
           latitude: data.latitude,
           longitude: data.longitude,
@@ -141,7 +200,19 @@ export class LocationRepository {
           address: data.address || null,
           description: data.description || null,
           metadata: data.metadata,
-          verified: true
+          source: data.source,
+          osmId: data.osmId || null,
+          googlePlaceId: data.googlePlaceId || null,
+          rating: data.rating || null,
+          reviewCount: data.reviewCount || null,
+          priceLevel: data.priceLevel || null,
+          qualityScore: data.qualityScore || null,
+          mergeStatus: data.mergeStatus || 'pending',
+          verified: true,
+
+          // Set appropriate timestamp fields
+          ...(data.osmId && { osmLastUpdated: new Date() }),
+          ...(data.googlePlaceId && { googleLastUpdated: new Date() })
         }
       });
     }
@@ -157,35 +228,102 @@ export class LocationRepository {
     });
   }
 
-  async findStaleLocations(olderThanHours: number = 24) {
+  // Enhanced stale data detection for multi-provider refresh
+  async findStaleLocations(olderThanHours: number = 24, provider?: 'osm' | 'google') {
     const cutoffDate = new Date();
     cutoffDate.setHours(cutoffDate.getHours() - olderThanHours);
 
+    const whereClause: any = {
+      source: { not: 'manual' }
+    };
+
+    if (provider === 'osm') {
+      whereClause.AND = [
+        { osmId: { not: null } },
+        {
+          OR: [
+            { osmLastUpdated: { lt: cutoffDate } },
+            { osmLastUpdated: null }
+          ]
+        }
+      ];
+    } else if (provider === 'google') {
+      whereClause.AND = [
+        { googlePlaceId: { not: null } },
+        {
+          OR: [
+            { googleLastUpdated: { lt: cutoffDate } },
+            { googleLastUpdated: null }
+          ]
+        }
+      ];
+    } else {
+      // General stale data
+      whereClause.lastUpdated = { lt: cutoffDate };
+    }
+
+    return this.prisma.location.findMany({
+      where: whereClause,
+      orderBy: { qualityScore: 'desc' }
+    });
+  }
+
+  // Find locations that could benefit from Google enrichment
+  async findLocationsForGoogleEnrichment(limit: number = 50) {
     return this.prisma.location.findMany({
       where: {
-        lastUpdated: {
-          lt: cutoffDate
-        },
-        source: {
-          not: 'manual'
-        }
-      }
+        AND: [
+          { googlePlaceId: null }, // Not yet enriched with Google data
+          { source: { in: ['osm', 'manual'] } }, // OSM or manual locations
+          {
+            OR: [
+              { category: { in: ['restaurant', 'cafe', 'bar', 'attraction'] } },
+              { qualityScore: { gte: 0.7 } } // High quality locations worth enriching
+            ]
+          }
+        ]
+      },
+      orderBy: [
+        { qualityScore: 'desc' },
+        { createdAt: 'desc' }
+      ],
+      take: limit
     });
   }
 
   async deleteByExternalId(externalId: string, source: string): Promise<void> {
-    const location = await this.prisma.location.findFirst({
-      where: {
-        externalId,
-        source
-      }
-    });
+    const location = await this.findByExternalId(externalId, source);
 
     if (location) {
       await this.prisma.location.delete({
         where: { id: location.id }
       });
     }
+  }
+
+  // Enhanced analytics methods for multi-provider insights
+  async getProviderStats() {
+    const stats = await this.prisma.location.groupBy({
+      by: ['source'],
+      _count: { source: true },
+      _avg: { qualityScore: true, rating: true },
+      orderBy: { _count: { source: 'desc' } }
+    });
+
+    return stats.map(stat => ({
+      provider: stat.source,
+      count: stat._count.source,
+      avgQualityScore: stat._avg.qualityScore,
+      avgRating: stat._avg.rating
+    }));
+  }
+
+  async getMergeStatusStats() {
+    return this.prisma.location.groupBy({
+      by: ['mergeStatus'],
+      _count: { mergeStatus: true },
+      orderBy: { _count: { mergeStatus: 'desc' } }
+    });
   }
 
   private calculateBoundingBox(lat: number, lng: number, radiusMeters: number) {
