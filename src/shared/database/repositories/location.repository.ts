@@ -1,3 +1,5 @@
+// src/shared/database/repositories/location.repository.ts - FIXED VERSION
+
 import { PrismaClient } from '@prisma/client';
 
 export interface LocationSearchParams {
@@ -9,6 +11,7 @@ export interface LocationSearchParams {
   source?: string;
 }
 
+// FIXED: Added missing externalId field
 export interface NearbyLocation {
   id: string;
   name: string;
@@ -32,6 +35,8 @@ export interface NearbyLocation {
   description: string | null;
   metadata: any;
   distance: number;
+  // ADDED: Missing externalId field
+  externalId: string;
 }
 
 // Enhanced interface for multi-provider location creation
@@ -79,7 +84,7 @@ export class LocationRepository {
     });
   }
 
-  async findByExternalId(externalId: string, source: string) {
+  async findByExternalId(externalId: string, _source: string) {
     return this.prisma.location.findFirst({
       where: {
         OR: [
@@ -92,6 +97,7 @@ export class LocationRepository {
     });
   }
 
+  // FIXED: Updated findNearby to include externalId in the return mapping
   async findNearby(params: LocationSearchParams): Promise<NearbyLocation[]> {
     const { latitude, longitude, radius, categories, limit = 50, source } = params;
 
@@ -134,7 +140,9 @@ export class LocationRepository {
         distance: this.calculateDistance(
           latitude, longitude,
           location.latitude, location.longitude
-        )
+        ),
+        // FIXED: Generate externalId from available IDs
+        externalId: location.osmId || location.googlePlaceId || location.id
       }))
       .filter((location: any) => location.distance <= radius)
       .sort((a: any, b: any) => a.distance - b.distance)

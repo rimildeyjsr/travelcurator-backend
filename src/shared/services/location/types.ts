@@ -273,3 +273,13 @@ export interface LocationServiceConfig {
   maxRadius: number; // meters
   resultsPerCategory: number;
 }
+
+export interface LocationServiceConfig {
+  primaryProvider: 'osm' | 'google' | 'hybrid'; // ADDED hybrid
+  fallbackProvider?: 'osm' | 'google' | 'hybrid'; // ADDED hybrid
+  enableCaching: boolean;
+  cacheTimeout: number; // seconds
+  defaultRadius: number; // meters
+  maxRadius: number; // meters
+  resultsPerCategory: number;
+}

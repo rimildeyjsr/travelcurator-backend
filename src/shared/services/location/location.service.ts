@@ -1,4 +1,4 @@
-// src/shared/services/location/location.service.ts - ENHANCED VERSION
+// src/shared/services/location/location.service.ts - COMPLETE HYBRID INTEGRATION
 
 import { config } from '@shared/config';
 import { AppError } from '@shared/errors';
@@ -12,7 +12,7 @@ import {
   MOOD_CATEGORY_MAPPING,
   LocationServiceConfig
 } from './types';
-import { OSMProvider, GooglePlacesProvider } from './providers';
+import { OSMProvider, GooglePlacesProvider, HybridProvider } from './providers'; // ADDED HybridProvider
 
 interface CacheEntry {
   data: LocationSearchResponse;
@@ -26,7 +26,7 @@ export class LocationService {
 
   constructor() {
     this.serviceConfig = {
-      primaryProvider: (config.location?.primaryProvider as any) || 'osm',
+      primaryProvider: (config.location?.primaryProvider as any) || 'hybrid', // CHANGED DEFAULT
       fallbackProvider: config.location?.fallbackProvider as any,
       enableCaching: config.location?.enableCaching ?? true,
       cacheTimeout: config.location?.cacheTimeout || 300, // 5 minutes
@@ -67,6 +67,22 @@ export class LocationService {
       console.warn('⚠️ Failed to initialize Google Places provider:', error);
     }
 
+    // ADDED: Initialize Hybrid provider
+    try {
+      console.log('🔄 Attempting to initialize Hybrid provider...');
+      const hybridProvider = new HybridProvider();
+      console.log('🔄 HybridProvider created, validating config...');
+      if (hybridProvider.validateConfig()) {
+        this.providers.set('hybrid', hybridProvider);
+        console.log('✅ Hybrid provider initialized successfully');
+      } else {
+        console.warn('⚠️ Hybrid provider config validation failed');
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize Hybrid provider:', error);
+      console.error('Full error details:', error);
+    }
+
     // Validate that primary provider is available
     if (!this.providers.has(this.serviceConfig.primaryProvider)) {
       console.warn(`⚠️ Primary location provider '${this.serviceConfig.primaryProvider}' not available`);
@@ -99,6 +115,33 @@ export class LocationService {
       }
     }
 
+    // ENHANCED: If using hybrid provider, skip database-first approach
+    // Hybrid provider handles database + external data intelligently
+    if (this.serviceConfig.primaryProvider === 'hybrid') {
+      try {
+        const providerResponse = await this.searchProviders(normalizedRequest);
+
+        // Cache the response
+        if (this.serviceConfig.enableCaching) {
+          this.setCache(cacheKey, providerResponse);
+        }
+
+        return providerResponse;
+      } catch (error) {
+        // Fallback to database only if hybrid fails
+        const dbResults = await this.searchDatabase(normalizedRequest);
+        return {
+          ...dbResults,
+          metadata: {
+            ...dbResults.metadata,
+            provider: 'database-fallback-hybrid',
+            fallbackReason: error instanceof Error ? error.message : 'Hybrid provider failed'
+          }
+        };
+      }
+    }
+
+    // Original logic for non-hybrid providers
     // Try database first for existing locations
     const dbResults = await this.searchDatabase(normalizedRequest);
 
@@ -364,7 +407,7 @@ export class LocationService {
         ...(location.description && { description: location.description }),
         metadata: {
           source: location.source as any,
-          externalId: location.externalId || location.id,
+          externalId: location.osmId || location.googlePlaceId || location.id,
           lastUpdated: location.lastUpdated,
           verified: location.verified,
           ...(location.metadata as any)
@@ -397,8 +440,8 @@ export class LocationService {
     // TODO: Implement background refresh logic
   }
 
-  // NEW: Provider switching capability for testing
-  async switchProvider(providerName: 'osm' | 'google'): Promise<boolean> {
+  // UPDATED: Provider switching capability for testing (now includes hybrid)
+  async switchProvider(providerName: 'osm' | 'google' | 'hybrid'): Promise<boolean> {
     if (this.providers.has(providerName)) {
       this.serviceConfig.primaryProvider = providerName;
       console.log(`📍 Switched to '${providerName}' provider`);
@@ -407,7 +450,7 @@ export class LocationService {
     return false;
   }
 
-  // NEW: Get provider status for debugging
+  // UPDATED: Get provider status for debugging (now includes hybrid)
   getProviderStatus(): Record<string, { available: boolean; name: string }> {
     const status: Record<string, { available: boolean; name: string }> = {};
 

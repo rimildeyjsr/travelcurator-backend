@@ -90,7 +90,12 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
           totalResults: searchResult.metadata.totalResults,
           searchRadius: searchResult.metadata.searchRadius,
           categoriesSearched: searchResult.metadata.categoriesSearched,
-          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached })
+          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached }),
+          // ADDED: Include hybrid-specific metadata if available
+          ...(searchResult.metadata.osmPlaces !== undefined && { osmPlaces: searchResult.metadata.osmPlaces }),
+          ...(searchResult.metadata.googleEnrichments !== undefined && { googleEnrichments: searchResult.metadata.googleEnrichments }),
+          ...(searchResult.metadata.costOptimization !== undefined && { costOptimization: searchResult.metadata.costOptimization }),
+          ...(searchResult.metadata.fallbackReason !== undefined && { fallbackReason: searchResult.metadata.fallbackReason })
         }
       };
 
@@ -103,7 +108,10 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
         resultsCount: response.places.length,
         provider: response.metadata.provider,
         responseTime: response.metadata.responseTime,
-        cached: response.metadata.cached
+        cached: response.metadata.cached,
+        // ADDED: Log hybrid-specific metrics
+        ...(response.metadata.osmPlaces !== undefined && { osmPlaces: response.metadata.osmPlaces }),
+        ...(response.metadata.googleEnrichments !== undefined && { googleEnrichments: response.metadata.googleEnrichments })
       }, 'Location search performed');
 
       return response;
@@ -282,7 +290,11 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
           totalResults: searchResult.metadata.totalResults,
           searchRadius: searchResult.metadata.searchRadius,
           categoriesSearched: searchResult.metadata.categoriesSearched,
-          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached })
+          ...(searchResult.metadata.cached !== undefined && { cached: searchResult.metadata.cached }),
+          // ADDED: Include hybrid-specific metadata
+          ...(searchResult.metadata.osmPlaces !== undefined && { osmPlaces: searchResult.metadata.osmPlaces }),
+          ...(searchResult.metadata.googleEnrichments !== undefined && { googleEnrichments: searchResult.metadata.googleEnrichments }),
+          ...(searchResult.metadata.costOptimization !== undefined && { costOptimization: searchResult.metadata.costOptimization })
         }
       };
 
@@ -291,7 +303,11 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
         mood,
         coordinates: { latitude, longitude },
         radius,
-        resultsCount: response.places.length
+        resultsCount: response.places.length,
+        provider: response.metadata.provider,
+        // ADDED: Log hybrid metrics
+        ...(response.metadata.osmPlaces !== undefined && { osmPlaces: response.metadata.osmPlaces }),
+        ...(response.metadata.googleEnrichments !== undefined && { googleEnrichments: response.metadata.googleEnrichments })
       }, 'Mood-based location search');
 
       return response;
@@ -312,7 +328,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     };
   });
 
-  // Switch provider (for testing)
+  // Switch provider (for testing) - UPDATED TO INCLUDE HYBRID
   if (config.server.nodeEnv === 'development') {
     server.post('/api/locations/providers/switch', {
       preHandler: requireAuth(),
@@ -322,14 +338,14 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
           properties: {
             provider: {
               type: 'string',
-              enum: ['osm', 'google']
+              enum: ['osm', 'google', 'hybrid'] // ADDED hybrid
             }
           },
           required: ['provider']
         }
       }
     }, async (request) => {
-      const { provider } = request.body as { provider: 'osm' | 'google' };
+      const { provider } = request.body as { provider: 'osm' | 'google' | 'hybrid' }; // ADDED hybrid
 
       const success = await locationService.switchProvider(provider);
 
@@ -344,7 +360,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
       }
     });
 
-    // Test provider with sample query
+    // Test provider with sample query - UPDATED TO INCLUDE HYBRID
     server.post('/api/locations/providers/test', {
       preHandler: requireAuth(),
       schema: {
@@ -353,7 +369,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
           properties: {
             provider: {
               type: 'string',
-              enum: ['osm', 'google']
+              enum: ['osm', 'google', 'hybrid'] // ADDED hybrid
             },
             latitude: { type: 'number', minimum: -90, maximum: 90 },
             longitude: { type: 'number', minimum: -180, maximum: 180 }
@@ -363,7 +379,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
       }
     }, async (request) => {
       const { provider, latitude, longitude } = request.body as {
-        provider: 'osm' | 'google';
+        provider: 'osm' | 'google' | 'hybrid'; // ADDED hybrid
         latitude: number;
         longitude: number;
       };
@@ -386,7 +402,7 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
         });
 
         // Switch back to original provider
-        await locationService.switchProvider(originalProvider as 'osm' | 'google');
+        await locationService.switchProvider(originalProvider as 'osm' | 'google' | 'hybrid'); // UPDATED type
 
         return {
           message: `Successfully tested ${provider} provider`,
@@ -394,12 +410,18 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
             provider,
             placesFound: result.places.length,
             responseTime: result.metadata.responseTime,
-            samplePlace: result.places[0] || null
+            samplePlace: result.places[0] || null,
+            // ADDED: Show hybrid-specific metadata if available
+            ...(result.metadata.osmPlaces !== undefined && {
+              osmPlaces: result.metadata.osmPlaces,
+              googleEnrichments: result.metadata.googleEnrichments,
+              costOptimization: result.metadata.costOptimization
+            })
           }
         };
       } catch (error) {
         // Make sure to switch back even if test fails
-        await locationService.switchProvider(originalProvider as 'osm' | 'google');
+        await locationService.switchProvider(originalProvider as 'osm' | 'google' | 'hybrid'); // UPDATED type
         throw error;
       }
     });
@@ -459,7 +481,10 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
         lastSearch: {
           responseTime: testResult.metadata.responseTime,
           resultsFound: testResult.places.length,
-          provider: testResult.metadata.provider
+          provider: testResult.metadata.provider,
+          // ADDED: Include hybrid metrics in health check
+          ...(testResult.metadata.osmPlaces !== undefined && { osmPlaces: testResult.metadata.osmPlaces }),
+          ...(testResult.metadata.googleEnrichments !== undefined && { googleEnrichments: testResult.metadata.googleEnrichments })
         }
       };
     } catch (error) {

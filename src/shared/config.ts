@@ -1,3 +1,4 @@
+// src/shared/config.ts - UPDATED WITH HYBRID SUPPORT
 import 'dotenv/config';
 
 interface Config {
@@ -30,8 +31,8 @@ interface Config {
     timeout: number;
   };
   location: {
-    primaryProvider: 'osm' | 'google';
-    fallbackProvider?: 'osm' | 'google';
+    primaryProvider: 'osm' | 'google' | 'hybrid'; // ADDED hybrid
+    fallbackProvider?: 'osm' | 'google' | 'hybrid'; // ADDED hybrid
     enableCaching: boolean;
     cacheTimeout: number;
     defaultRadius: number;
@@ -99,10 +100,10 @@ export const config: Config = {
     };
   })(),
   location: (() => {
-    const provider = getEnvVar('LOCATION_PROVIDER', 'osm');
+    const provider = getEnvVar('LOCATION_PROVIDER', 'hybrid'); // CHANGED DEFAULT to hybrid
     const fallbackProvider = getOptionalEnvVar('LOCATION_FALLBACK_PROVIDER');
 
-    const validProviders = ['osm', 'google'] as const;
+    const validProviders = ['osm', 'google', 'hybrid'] as const; // ADDED hybrid
     if (!validProviders.includes(provider as any)) {
       throw new Error(`Invalid LOCATION_PROVIDER: ${provider}. Must be one of: ${validProviders.join(', ')}`);
     }
@@ -112,8 +113,8 @@ export const config: Config = {
     }
 
     return {
-      primaryProvider: provider as 'osm' | 'google',
-      ...(fallbackProvider && { fallbackProvider: fallbackProvider as 'osm' | 'google' }),
+      primaryProvider: provider as 'osm' | 'google' | 'hybrid', // UPDATED type
+      ...(fallbackProvider && { fallbackProvider: fallbackProvider as 'osm' | 'google' | 'hybrid' }), // UPDATED type
       enableCaching: getEnvVar('LOCATION_ENABLE_CACHING', 'true') === 'true',
       cacheTimeout: parseInt(getEnvVar('LOCATION_CACHE_TIMEOUT', '300'), 10), // 5 minutes
       defaultRadius: parseInt(getEnvVar('LOCATION_DEFAULT_RADIUS', '2000'), 10), // 2km
