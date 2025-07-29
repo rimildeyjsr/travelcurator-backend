@@ -1,3 +1,5 @@
+// src/features/locations/locations.routes.ts - ENHANCED VERSION
+
 import { FastifyInstance } from 'fastify';
 import { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import {
@@ -88,9 +90,9 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
       return {
         place,
         metadata: {
-          provider: place.metadata.source,
-          lastUpdated: place.metadata.lastUpdated,
-          verified: place.metadata.verified
+          provider: place.metadata?.source || 'unknown',
+          lastUpdated: place.metadata?.lastUpdated?.toISOString() || new Date().toISOString(),
+          verified: place.metadata?.verified || false
         }
       };
     } catch (error) {
@@ -162,6 +164,111 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     }
   });
 
+  // NEW: Provider status and testing endpoints
+  server.get('/api/locations/providers/status', {
+    preHandler: requireAuth()
+  }, async () => {
+    return {
+      currentProvider: locationService.getCurrentProvider(),
+      availableProviders: locationService.getAvailableProviders(),
+      providerStatus: locationService.getProviderStatus(),
+      cacheStats: locationService.getCacheStats()
+    };
+  });
+
+  // NEW: Switch provider (for testing)
+  if (config.server.nodeEnv === 'development') {
+    server.post('/api/locations/providers/switch', {
+      preHandler: requireAuth(),
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            provider: {
+              type: 'string',
+              enum: ['osm', 'google']
+            }
+          },
+          required: ['provider']
+        }
+      }
+    }, async (request) => {
+      const { provider } = request.body as { provider: 'osm' | 'google' };
+
+      const success = await locationService.switchProvider(provider);
+
+      if (success) {
+        return {
+          message: `Successfully switched to ${provider} provider`,
+          currentProvider: locationService.getCurrentProvider(),
+          availableProviders: locationService.getAvailableProviders()
+        };
+      } else {
+        throw new AppError(`Provider '${provider}' is not available`, 400);
+      }
+    });
+
+    // NEW: Test provider with sample query
+    server.post('/api/locations/providers/test', {
+      preHandler: requireAuth(),
+      schema: {
+        body: {
+          type: 'object',
+          properties: {
+            provider: {
+              type: 'string',
+              enum: ['osm', 'google']
+            },
+            latitude: { type: 'number', minimum: -90, maximum: 90 },
+            longitude: { type: 'number', minimum: -180, maximum: 180 }
+          },
+          required: ['provider', 'latitude', 'longitude']
+        }
+      }
+    }, async (request) => {
+      const { provider, latitude, longitude } = request.body as {
+        provider: 'osm' | 'google';
+        latitude: number;
+        longitude: number;
+      };
+
+      const originalProvider = locationService.getCurrentProvider();
+
+      try {
+        // Switch to test provider
+        const switched = await locationService.switchProvider(provider);
+        if (!switched) {
+          throw new AppError(`Provider '${provider}' is not available`, 400);
+        }
+
+        // Run test search
+        const result = await locationService.searchNearby({
+          latitude,
+          longitude,
+          radius: 1000,
+          limit: 5
+        });
+
+        // Switch back to original provider
+        await locationService.switchProvider(originalProvider as 'osm' | 'google');
+
+        return {
+          message: `Successfully tested ${provider} provider`,
+          testResults: {
+            provider,
+            placesFound: result.places.length,
+            responseTime: result.metadata.responseTime,
+            samplePlace: result.places[0] || null
+          }
+        };
+      } catch (error) {
+        // Make sure to switch back even if test fails
+        await locationService.switchProvider(originalProvider as 'osm' | 'google');
+        throw error;
+      }
+    });
+  }
+
   // Cache management endpoints (development only)
   if (config.server.nodeEnv === 'development') {
     // Get cache statistics
@@ -201,20 +308,22 @@ async function locationsRoutes(fastify: FastifyInstance): Promise<void> {
     preHandler: requireAuth()
   }, async () => {
     try {
-      // Test with a simple search
+      // Test with a simple search (Times Square, NYC)
       const testResult = await locationService.searchNearby({
-        latitude: 40.7831, // New York City
-        longitude: -73.9712,
+        latitude: 40.7589,
+        longitude: -73.9851,
         radius: 1000,
         limit: 1
       });
 
       return {
         status: 'healthy',
-        provider: locationService.getCurrentProvider(),
+        currentProvider: locationService.getCurrentProvider(),
+        availableProviders: locationService.getAvailableProviders(),
         lastSearch: {
           responseTime: testResult.metadata.responseTime,
-          resultsFound: testResult.places.length
+          resultsFound: testResult.places.length,
+          provider: testResult.metadata.provider
         }
       };
     } catch (error) {

@@ -35,6 +35,7 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/type-provider-typebox": "^5.2.0",
     "@google/generative-ai": "^0.24.1",
+    "@googlemaps/places": "^2.1.0",
     "@prisma/client": "^6.12.0",
     "@sinclair/typebox": "^0.34.38",
     "bcrypt": "^6.0.0",

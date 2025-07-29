@@ -1,3 +1,5 @@
+// src/shared/services/location/location.service.ts - ENHANCED VERSION
+
 import { config } from '@shared/config';
 import { AppError } from '@shared/errors';
 import { db } from '@shared/database';
@@ -10,7 +12,7 @@ import {
   MOOD_CATEGORY_MAPPING,
   LocationServiceConfig
 } from './types';
-import { OSMProvider } from './providers';
+import { OSMProvider, GooglePlacesProvider } from './providers';
 
 interface CacheEntry {
   data: LocationSearchResponse;
@@ -37,6 +39,8 @@ export class LocationService {
   }
 
   private initializeProviders(): void {
+    console.log('🔧 Initializing location providers...');
+
     // Initialize OSM provider
     try {
       const osmProvider = new OSMProvider();
@@ -48,13 +52,36 @@ export class LocationService {
       console.warn('⚠️ Failed to initialize OSM provider:', error);
     }
 
-    // Future: Initialize other providers
-    // Google Places provider would go here
+    // Initialize Google Places provider
+    try {
+      if (config.apis.googlePlaces) {
+        const googleProvider = new GooglePlacesProvider();
+        if (googleProvider.validateConfig()) {
+          this.providers.set('google', googleProvider);
+          console.log('✅ Google Places provider initialized successfully');
+        }
+      } else {
+        console.warn('⚠️ Google Places provider not configured (missing GOOGLE_PLACES_API_KEY)');
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize Google Places provider:', error);
+    }
 
     // Validate that primary provider is available
     if (!this.providers.has(this.serviceConfig.primaryProvider)) {
-      console.warn(`⚠️ Primary location provider '${this.serviceConfig.primaryProvider}' not available, using database only`);
+      console.warn(`⚠️ Primary location provider '${this.serviceConfig.primaryProvider}' not available`);
+
+      // Try to use any available provider as fallback
+      const availableProviders = Array.from(this.providers.keys());
+      if (availableProviders.length > 0) {
+        this.serviceConfig.primaryProvider = availableProviders[0] as any;
+        console.log(`📍 Using '${this.serviceConfig.primaryProvider}' as primary provider instead`);
+      } else {
+        console.warn('⚠️ No location providers available, using database only');
+      }
     }
+
+    console.log(`📍 Location service initialized with providers: ${Array.from(this.providers.keys()).join(', ')}`);
   }
 
   async searchNearby(request: LocationSearchRequest): Promise<LocationSearchResponse> {
@@ -130,7 +157,6 @@ export class LocationService {
     // Apply mood-based category selection if no categories specified
     let categories = request.categories;
     if (!categories && request.mood) {
-      // FIX: Convert readonly array to mutable array
       const moodCategories = MOOD_CATEGORY_MAPPING[request.mood];
       categories = moodCategories ? [...moodCategories] : [];
     }
@@ -191,30 +217,45 @@ export class LocationService {
   }
 
   private async searchProviders(request: Required<LocationSearchRequest>): Promise<LocationSearchResponse> {
-    const provider = this.providers.get(this.serviceConfig.primaryProvider);
-    if (!provider) {
+    const primaryProvider = this.providers.get(this.serviceConfig.primaryProvider);
+
+    if (!primaryProvider) {
       throw new Error(`Primary provider '${this.serviceConfig.primaryProvider}' not available`);
     }
 
-    // Update the request to fix the coordinate assignment issue
-    const providerRequest: LocationSearchRequest = {
-      latitude: request.latitude,
-      longitude: request.longitude,
-      radius: request.radius,
-      categories: request.categories,
-      mood: request.mood,
-      limit: request.limit,
-      excludeChains: request.excludeChains
-    };
+    // Try primary provider first
+    try {
+      const result = await primaryProvider.searchNearby(request);
+      console.log(`📍 Used primary provider '${this.serviceConfig.primaryProvider}' - found ${result.places.length} places`);
+      return result;
+    } catch (primaryError) {
+      console.warn(`Primary provider '${this.serviceConfig.primaryProvider}' failed:`, primaryError);
 
-    return await provider.searchNearby(providerRequest);
+      // Try fallback provider if available
+      if (this.serviceConfig.fallbackProvider && this.serviceConfig.fallbackProvider !== this.serviceConfig.primaryProvider) {
+        const fallbackProvider = this.providers.get(this.serviceConfig.fallbackProvider);
+        if (fallbackProvider) {
+          try {
+            const result = await fallbackProvider.searchNearby(request);
+            console.log(`📍 Used fallback provider '${this.serviceConfig.fallbackProvider}' - found ${result.places.length} places`);
+            return result;
+          } catch (fallbackError) {
+            console.warn(`Fallback provider '${this.serviceConfig.fallbackProvider}' also failed:`, fallbackError);
+          }
+        }
+      }
+
+      // If both providers fail, throw the original error
+      throw primaryError;
+    }
   }
 
   private async storePlacesInDatabase(places: Place[]): Promise<void> {
-    // Store places in database for future caching
+    console.log(`💾 Storing ${places.length} places in database...`);
+
+    let stored = 0;
     for (const place of places) {
       try {
-        // FIX: Handle possibly undefined metadata
         const metadata = place.metadata;
         if (!metadata) {
           console.warn(`Skipping place ${place.name}: no metadata`);
@@ -232,11 +273,13 @@ export class LocationService {
           description: place.description || null,
           metadata: metadata
         });
+        stored++;
       } catch (error) {
-        // Log error but don't fail the entire operation
         console.warn(`Failed to store place ${place.name}:`, error);
       }
     }
+
+    console.log(`✅ Successfully stored ${stored}/${places.length} places in database`);
   }
 
   private generateCacheKey(request: Required<LocationSearchRequest>): string {
@@ -329,8 +372,14 @@ export class LocationService {
       };
     }
 
-    // If not in database, try external providers with external ID
-    if (id.startsWith('osm_')) {
+    // Try external providers based on ID format
+    if (id.startsWith('google_')) {
+      const provider = this.providers.get('google');
+      if (provider) {
+        const placeId = id.replace('google_', '');
+        return await provider.getPlaceDetails(placeId);
+      }
+    } else if (id.startsWith('osm_')) {
       const provider = this.providers.get('osm');
       if (provider) {
         const externalId = id.replace('osm_node_', '').replace('osm_way_', '').replace('osm_relation_', '');
@@ -342,12 +391,34 @@ export class LocationService {
   }
 
   async refreshStaleData(): Promise<void> {
-    // Background job to refresh stale location data
-    const staleLocations = await db.location.findStaleLocations(24); // 24 hours
+    const staleLocations = await db.location.findStaleLocations(24);
     console.log(`Found ${staleLocations.length} stale locations to refresh`);
 
     // TODO: Implement background refresh logic
-    // This would re-query providers for updated information
+  }
+
+  // NEW: Provider switching capability for testing
+  async switchProvider(providerName: 'osm' | 'google'): Promise<boolean> {
+    if (this.providers.has(providerName)) {
+      this.serviceConfig.primaryProvider = providerName;
+      console.log(`📍 Switched to '${providerName}' provider`);
+      return true;
+    }
+    return false;
+  }
+
+  // NEW: Get provider status for debugging
+  getProviderStatus(): Record<string, { available: boolean; name: string }> {
+    const status: Record<string, { available: boolean; name: string }> = {};
+
+    for (const [key, provider] of this.providers) {
+      status[key] = {
+        available: provider.validateConfig(),
+        name: provider.getProviderName()
+      };
+    }
+
+    return status;
   }
 }
 
