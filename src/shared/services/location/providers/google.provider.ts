@@ -1,6 +1,5 @@
-// src/shared/services/location/providers/google.provider.ts
+// src/shared/services/location/providers/google.provider.ts - WORKING VERSION with Legacy API
 
-import { PlacesClient } from '@googlemaps/places';
 import { config } from '@shared/config';
 import {
   LocationProvider,
@@ -10,39 +9,6 @@ import {
   POICategory,
   PlaceMetadata
 } from '../types';
-
-// Define interfaces for Google Places API responses
-interface GooglePlace {
-  id: string;
-  displayName?: { text: string };
-  formattedAddress?: string;
-  location?: {
-    latitude: number;
-    longitude: number;
-  };
-  types?: string[];
-  rating?: number;
-  userRatingCount?: number;
-  priceLevel?: 'PRICE_LEVEL_FREE' | 'PRICE_LEVEL_INEXPENSIVE' | 'PRICE_LEVEL_MODERATE' | 'PRICE_LEVEL_EXPENSIVE' | 'PRICE_LEVEL_VERY_EXPENSIVE';
-  businessStatus?: 'OPERATIONAL' | 'CLOSED_TEMPORARILY' | 'CLOSED_PERMANENTLY';
-  photos?: Array<{
-    name: string;
-    widthPx: number;
-    heightPx: number;
-  }>;
-  regularOpeningHours?: {
-    periods: Array<{
-      open: { day: number; hour: number; minute: number };
-      close?: { day: number; hour: number; minute: number };
-    }>;
-  };
-  nationalPhoneNumber?: string;
-  websiteUri?: string;
-}
-
-interface GoogleSearchResponse {
-  places?: GooglePlace[];
-}
 
 // Google Place Types to POI Category mapping
 const GOOGLE_TYPE_TO_CATEGORY: Record<string, POICategory> = {
@@ -68,7 +34,6 @@ const GOOGLE_TYPE_TO_CATEGORY: Record<string, POICategory> = {
   gym: POICategory.FITNESS_CENTRE,
   spa: POICategory.SPA,
   golf_course: POICategory.GOLF_COURSE,
-  marina: POICategory.MARINA,
 
   // Shopping
   shopping_mall: POICategory.MALL,
@@ -89,13 +54,13 @@ const GOOGLE_TYPE_TO_CATEGORY: Record<string, POICategory> = {
   bus_station: POICategory.BUS_STATION,
   subway_station: POICategory.SUBWAY,
   taxi_stand: POICategory.TAXI,
-  car_rental: POICategory.CAR_RENTAL,
   parking: POICategory.PARKING,
 };
 
 export class GooglePlacesProvider implements LocationProvider {
-  private client: PlacesClient;
   private apiKey: string;
+  private readonly baseUrl = 'https://maps.googleapis.com/maps/api/place';
+  private readonly timeout: number;
 
   constructor() {
     if (!config.apis.googlePlaces) {
@@ -103,60 +68,42 @@ export class GooglePlacesProvider implements LocationProvider {
     }
 
     this.apiKey = config.apis.googlePlaces;
-
-    // Initialize the Places client - no constructor options needed for API key auth
-    // We'll pass the API key in headers for each request
-    this.client = new PlacesClient();
+    this.timeout = config.location?.timeout || 10000;
   }
 
   async searchNearby(request: LocationSearchRequest): Promise<LocationSearchResponse> {
     const startTime = Date.now();
 
     try {
-      // Convert our request to Google Places API format
-      const searchRequest = {
-        locationRestriction: {
-          circle: {
-            center: {
-              latitude: request.latitude,
-              longitude: request.longitude,
-            },
-            radius: request.radius || 2000,
-          },
-        },
-        includedTypes: this.mapCategoriesToGoogleTypes(request.categories || []),
-        maxResultCount: request.limit || 20,
-      };
+      // Use Google Places API (Legacy) - simple and reliable
+      const location = `${request.latitude},${request.longitude}`;
+      const radius = request.radius || 2000;
+      const type = this.mapCategoriesToGoogleType(request.categories || []);
 
-      // Define field mask for the response
-      const fieldMask = [
-        'places.id',
-        'places.displayName',
-        'places.formattedAddress',
-        'places.location',
-        'places.types',
-        'places.rating',
-        'places.userRatingCount',
-        'places.priceLevel',
-        'places.businessStatus',
-      ].join(',');
-
-      // Use searchNearby method with proper authentication
-      const [response] = await this.client.searchNearby(searchRequest, {
-        otherArgs: {
-          headers: {
-            'X-Goog-FieldMask': fieldMask,
-            'X-Goog-Api-Key': this.apiKey,
-          },
-        },
+      const params = new URLSearchParams({
+        location,
+        radius: radius.toString(),
+        key: this.apiKey,
+        ...(type && { type }),
       });
 
-      const googleResponse = response as GoogleSearchResponse;
+      const url = `${this.baseUrl}/nearbysearch/json?${params}`;
+
+      console.log('🔍 Google Places API (Legacy) Request:', url.replace(this.apiKey, '[REDACTED]'));
+
+      const response = await this.makeRequest(url);
+
+      if (response.status !== 'OK' && response.status !== 'ZERO_RESULTS') {
+        throw new Error(`Google Places API error: ${response.status} - ${response.error_message || 'Unknown error'}`);
+      }
+
       const places = this.parseGooglePlaces(
-        googleResponse.places || [],
+        response.results || [],
         request.latitude,
         request.longitude
       );
+
+      console.log('✅ Google Places API Success:', `Found ${places.length} places`);
 
       return {
         places,
@@ -164,7 +111,7 @@ export class GooglePlacesProvider implements LocationProvider {
           provider: 'google',
           responseTime: Date.now() - startTime,
           totalResults: places.length,
-          searchRadius: request.radius || 2000,
+          searchRadius: radius,
           categoriesSearched: request.categories?.map(cat => cat.toString()) || [],
           cached: false,
         },
@@ -176,93 +123,99 @@ export class GooglePlacesProvider implements LocationProvider {
 
   async getPlaceDetails(placeId: string): Promise<Place | null> {
     try {
-      const request = {
-        name: `places/${placeId}`,
-      };
-
-      const fieldMask = [
-        'id',
-        'displayName',
-        'formattedAddress',
-        'location',
-        'types',
-        'rating',
-        'userRatingCount',
-        'priceLevel',
-        'businessStatus',
-        'photos',
-        'regularOpeningHours',
-        'nationalPhoneNumber',
-        'websiteUri',
-      ].join(',');
-
-      const [response] = await this.client.getPlace(request, {
-        otherArgs: {
-          headers: {
-            'X-Goog-FieldMask': fieldMask,
-            'X-Goog-Api-Key': this.apiKey,
-          },
-        },
+      const params = new URLSearchParams({
+        place_id: placeId,
+        key: this.apiKey,
+        fields: 'place_id,name,formatted_address,geometry,types,rating,user_ratings_total,price_level,business_status,formatted_phone_number,website,opening_hours'
       });
 
-      const googlePlace = response as GooglePlace;
-      if (!googlePlace.location) {
+      const url = `${this.baseUrl}/details/json?${params}`;
+      const response = await this.makeRequest(url);
+
+      if (response.status !== 'OK') {
+        console.warn(`Failed to get Google place details for ${placeId}: ${response.status}`);
         return null;
       }
 
-      return this.googlePlaceToPlace(googlePlace, 0);
+      if (!response.result || !response.result.geometry?.location) {
+        return null;
+      }
+
+      return this.googlePlaceToPlace(response.result, 0);
     } catch (error) {
       console.warn(`Failed to get Google place details for ${placeId}:`, error);
       return null;
     }
   }
 
-  private mapCategoriesToGoogleTypes(categories: POICategory[]): string[] {
-    const googleTypes: string[] = [];
+  private async makeRequest(url: string): Promise<any> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    // Create reverse mapping
-    const categoryToGoogleTypes: Record<POICategory, string[]> = {
-      [POICategory.RESTAURANT]: ['restaurant', 'meal_takeaway'],
-      [POICategory.CAFE]: ['cafe'],
-      [POICategory.BAR]: ['bar'],
-      [POICategory.FAST_FOOD]: ['meal_takeaway', 'meal_delivery'],
-      [POICategory.MUSEUM]: ['museum'],
-      [POICategory.GALLERY]: ['art_gallery'],
-      [POICategory.ATTRACTION]: ['tourist_attraction', 'amusement_park', 'zoo'],
-      [POICategory.PARK]: ['park'],
-      [POICategory.FITNESS_CENTRE]: ['gym'],
-      [POICategory.SPA]: ['spa'],
-      [POICategory.SHOP]: ['clothing_store', 'book_store', 'electronics_store'],
-      [POICategory.MALL]: ['shopping_mall'],
-      [POICategory.BANK]: ['bank'],
-      [POICategory.ATM]: ['atm'],
-      [POICategory.PHARMACY]: ['pharmacy'],
-      [POICategory.HOSPITAL]: ['hospital'],
-      [POICategory.FUEL]: ['gas_station'],
-      // Add more mappings as needed
-    } as Record<POICategory, string[]>;
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: controller.signal,
+      });
 
-    for (const category of categories) {
-      const types = categoryToGoogleTypes[category];
-      if (types) {
-        googleTypes.push(...types);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
-    }
 
-    return googleTypes.length > 0 ? googleTypes : ['point_of_interest'];
+      return await response.json();
+    } catch (error) {
+      clearTimeout(timeoutId);
+
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error('Request timeout');
+      }
+
+      throw error;
+    }
   }
 
-  private parseGooglePlaces(places: GooglePlace[], searchLat: number, searchLng: number): Place[] {
+  private mapCategoriesToGoogleType(categories: POICategory[]): string | undefined {
+    // For legacy API, we can only specify one type, so pick the first one
+    if (categories.length === 0) return undefined;
+
+    const firstCategory = categories[0];
+    if (!firstCategory) return undefined;
+
+    const categoryToGoogleType: Record<POICategory, string> = {
+      [POICategory.RESTAURANT]: 'restaurant',
+      [POICategory.CAFE]: 'cafe',
+      [POICategory.BAR]: 'bar',
+      [POICategory.FAST_FOOD]: 'meal_takeaway',
+      [POICategory.MUSEUM]: 'museum',
+      [POICategory.GALLERY]: 'art_gallery',
+      [POICategory.ATTRACTION]: 'tourist_attraction',
+      [POICategory.PARK]: 'park',
+      [POICategory.FITNESS_CENTRE]: 'gym',
+      [POICategory.SPA]: 'spa',
+      [POICategory.SHOP]: 'store',
+      [POICategory.MALL]: 'shopping_mall',
+      [POICategory.BANK]: 'bank',
+      [POICategory.ATM]: 'atm',
+      [POICategory.PHARMACY]: 'pharmacy',
+      [POICategory.HOSPITAL]: 'hospital',
+      [POICategory.FUEL]: 'gas_station',
+    } as Record<POICategory, string>;
+
+    return categoryToGoogleType[firstCategory] || 'point_of_interest';
+  }
+
+  private parseGooglePlaces(places: any[], searchLat: number, searchLng: number): Place[] {
     return places
-      .filter((place): place is GooglePlace & { location: NonNullable<GooglePlace['location']> } =>
-        !!(place.location && place.displayName?.text)
-      )
+      .filter(place => place.geometry?.location && place.name)
       .map(place => {
         const distance = this.calculateDistance(
           searchLat,
           searchLng,
-          place.location.latitude,
-          place.location.longitude
+          place.geometry.location.lat,
+          place.geometry.location.lng
         );
         return this.googlePlaceToPlace(place, distance);
       })
@@ -270,73 +223,93 @@ export class GooglePlacesProvider implements LocationProvider {
       .sort((a, b) => (a.distance || 0) - (b.distance || 0));
   }
 
-  private googlePlaceToPlace(googlePlace: GooglePlace, distance: number): Place | null {
-    if (!googlePlace.location || !googlePlace.displayName?.text) {
+  private googlePlaceToPlace(googlePlace: any, distance: number): Place | null {
+    if (!googlePlace.geometry?.location || !googlePlace.name) {
       return null;
     }
 
     const category = this.categorizeGooglePlace(googlePlace);
     const subcategory = googlePlace.types?.[0] || 'unknown';
 
-    // Build contact info
-    const contact: PlaceMetadata['contact'] = {};
-    if (googlePlace.nationalPhoneNumber) contact.phone = googlePlace.nationalPhoneNumber;
-    if (googlePlace.websiteUri) contact.website = googlePlace.websiteUri;
+    // Build contact info - only include if values exist
+    const contact: { phone?: string; website?: string; email?: string } = {};
+    if (googlePlace.formatted_phone_number) contact.phone = googlePlace.formatted_phone_number;
+    if (googlePlace.website) contact.website = googlePlace.website;
 
-    // Build hours
+    // Build hours - only include if values exist
     const hours: Record<string, string> = {};
-    if (googlePlace.regularOpeningHours?.periods) {
-      const periods = googlePlace.regularOpeningHours.periods;
-      for (const period of periods) {
-        const dayName = this.getDayName(period.open.day);
-        const openTime = `${period.open.hour.toString().padStart(2, '0')}:${period.open.minute.toString().padStart(2, '0')}`;
-        const closeTime = period.close
-          ? `${period.close.hour.toString().padStart(2, '0')}:${period.close.minute.toString().padStart(2, '0')}`
-          : '23:59';
-        hours[dayName] = `${openTime}-${closeTime}`;
-      }
+    if (googlePlace.opening_hours?.weekday_text) {
+      googlePlace.opening_hours.weekday_text.forEach((dayText: string) => {
+        const [day, time] = dayText.split(': ');
+        if (day && time) {
+          hours[day.toLowerCase()] = time;
+        }
+      });
     }
 
     // Build features
     const features: string[] = [];
-    if (googlePlace.businessStatus === 'OPERATIONAL') features.push('operational');
+    if (googlePlace.business_status === 'OPERATIONAL') features.push('operational');
+
+    // Build metadata step by step to avoid undefined assignments
+    const googleMetadata: { placeId: string; rating?: number; reviewCount?: number; priceLevel?: number } = {
+      placeId: googlePlace.place_id,
+    };
+
+    if (typeof googlePlace.rating === 'number') {
+      googleMetadata.rating = googlePlace.rating;
+    }
+    if (typeof googlePlace.user_ratings_total === 'number') {
+      googleMetadata.reviewCount = googlePlace.user_ratings_total;
+    }
+    if (typeof googlePlace.price_level === 'number') {
+      googleMetadata.priceLevel = googlePlace.price_level;
+    }
+
+    const metadata: PlaceMetadata = {
+      source: 'google' as const,
+      externalId: googlePlace.place_id,
+      lastUpdated: new Date(),
+      verified: true,
+      google: googleMetadata,
+    };
+
+    if (Object.keys(contact).length > 0) {
+      metadata.contact = contact;
+    }
+    if (Object.keys(hours).length > 0) {
+      metadata.hours = hours;
+    }
+    if (features.length > 0) {
+      metadata.features = features;
+    }
 
     const place: Place = {
-      id: `google_${googlePlace.id}`,
-      name: googlePlace.displayName.text,
+      id: `google_${googlePlace.place_id}`,
+      name: googlePlace.name,
       category,
       subcategory,
       coordinates: {
-        latitude: googlePlace.location.latitude,
-        longitude: googlePlace.location.longitude,
+        latitude: googlePlace.geometry.location.lat,
+        longitude: googlePlace.geometry.location.lng,
       },
-      distance,
-      metadata: {
-        source: 'google' as const,
-        externalId: googlePlace.id,
-        lastUpdated: new Date(),
-        verified: true,
-        google: {
-          placeId: googlePlace.id,
-          ...(googlePlace.rating && { rating: googlePlace.rating }),
-          ...(googlePlace.userRatingCount && { reviewCount: googlePlace.userRatingCount }),
-          ...(googlePlace.priceLevel && { priceLevel: this.mapPriceLevel(googlePlace.priceLevel) }),
-        },
-        ...(Object.keys(contact).length > 0 && { contact }),
-        ...(Object.keys(hours).length > 0 && { hours }),
-        ...(features.length > 0 && { features }),
-      },
+      metadata,
     };
 
+    // Only add distance if it's a valid number
+    if (typeof distance === 'number' && !isNaN(distance)) {
+      place.distance = distance;
+    }
+
     // Add optional properties only if they exist
-    if (googlePlace.formattedAddress) {
-      place.address = googlePlace.formattedAddress;
+    if (googlePlace.formatted_address) {
+      place.address = googlePlace.formatted_address;
     }
 
     return place;
   }
 
-  private categorizeGooglePlace(place: GooglePlace): POICategory {
+  private categorizeGooglePlace(place: any): POICategory {
     if (!place.types) {
       return POICategory.ATTRACTION;
     }
@@ -351,22 +324,6 @@ export class GooglePlacesProvider implements LocationProvider {
 
     // Fallback categorization
     return POICategory.ATTRACTION;
-  }
-
-  private mapPriceLevel(priceLevel: string): number {
-    const mapping: Record<string, number> = {
-      'PRICE_LEVEL_FREE': 0,
-      'PRICE_LEVEL_INEXPENSIVE': 1,
-      'PRICE_LEVEL_MODERATE': 2,
-      'PRICE_LEVEL_EXPENSIVE': 3,
-      'PRICE_LEVEL_VERY_EXPENSIVE': 4,
-    };
-    return mapping[priceLevel] || 2;
-  }
-
-  private getDayName(dayNumber: number): string {
-    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-    return days[dayNumber] || 'unknown';
   }
 
   private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
